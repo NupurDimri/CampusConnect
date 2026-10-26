@@ -73,10 +73,15 @@ export default function StudentDashboard() {
               <BriefcaseBusiness size={18} />
               Companies
             </Link>
+            
             <Link href="/student/profile" className="student-nav-link">
-              <UserRound size={18} />
-              My Profile
+              <UserRound size={18} />My Profile
             </Link>
+            
+            <Link href="/student/applications" className="student-nav-link">
+              <FileText size={18} />My Applications
+            </Link>
+
           </nav>
 
           <div className="student-sidebar-help">
