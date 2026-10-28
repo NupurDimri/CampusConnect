@@ -1,12 +1,8 @@
-
 "use client";
-import { saveJob, type Job } from "@/lib/jobs";
 
-
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-
 
 import {
   ArrowLeft,
@@ -20,7 +16,10 @@ import {
 
 export default function PostJobPage() {
   const router = useRouter();
+
   const [message, setMessage] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [today, setToday] = useState("");
 
   const [form, setForm] = useState({
     title: "",
@@ -38,29 +37,89 @@ export default function PostJobPage() {
     status: "Active",
   });
 
+  // Calculate today's date after the component mounts.
+  // This avoids the unstable Date() prerender error.
+  useEffect(() => {
+    const now = new Date();
+
+    const localDate = [
+      now.getFullYear(),
+      String(now.getMonth() + 1).padStart(2, "0"),
+      String(now.getDate()).padStart(2, "0"),
+    ].join("-");
+
+    setToday(localDate);
+  }, []);
+
   function handleChange(
     event: React.ChangeEvent<
       HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement
     >
   ) {
     const { name, value } = event.target;
-    setForm((previous) => ({ ...previous, [name]: value }));
+
+    setForm((previous) => ({
+      ...previous,
+      [name]: value,
+    }));
   }
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
 
-    if (
-      form.deadline &&
-      form.deadline < new Date().toISOString().split("T")[0]
-    ) {
+    if (isSubmitting) return;
+
+    setMessage("");
+
+    if (!today) {
+      setMessage("Please wait a moment and try again.");
+      return;
+    }
+
+    if (form.deadline && form.deadline < today) {
       setMessage("Please select today or a future application deadline.");
       return;
     }
 
-    setMessage(
-      "Demo validation successful! The job has not been saved to a database yet."
-    );
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/jobs", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(form),
+      });
+
+      const result = await response.json();
+
+      if (!response.ok) {
+        throw new Error(
+          result.error || "Unable to save the job. Please try again."
+        );
+      }
+
+      setMessage("Job saved successfully to PostgreSQL!");
+
+      // Return to the dashboard after displaying the success message.
+      window.setTimeout(() => {
+        router.push("/recruiter");
+        router.refresh();
+      }, 1200);
+    } catch (error) {
+      console.error("Error submitting job:", error);
+
+      setMessage(
+        error instanceof Error
+          ? error.message
+          : "An unexpected error occurred while saving the job."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -75,6 +134,7 @@ export default function PostJobPage() {
           <div className="post-job-heading-icon">
             <BriefcaseBusiness size={25} />
           </div>
+
           <div>
             <h1>Post a New Job</h1>
             <p>
@@ -192,7 +252,8 @@ export default function PostJobPage() {
                     name="deadline"
                     value={form.deadline}
                     onChange={handleChange}
-                    min={new Date().toISOString().split("T")[0]}
+                    min={today || undefined}
+                    onChangeCapture={() => setMessage("")}
                     required
                   />
                 </span>
@@ -266,7 +327,7 @@ export default function PostJobPage() {
                 value={form.status}
                 onChange={handleChange}
               >
-                <option value="Active">Active — visible to students (demo)</option>
+                <option value="Active">Active — visible to students</option>
                 <option value="Draft">Draft — not yet published</option>
               </select>
             </label>
@@ -287,19 +348,23 @@ export default function PostJobPage() {
               type="button"
               className="post-job-cancel"
               onClick={() => router.push("/recruiter")}
+              disabled={isSubmitting}
             >
               Cancel
             </button>
 
-            <button type="submit" className="post-job-submit">
+            <button
+              type="submit"
+              className="post-job-submit"
+              disabled={isSubmitting}
+            >
               <Save size={18} />
-              Validate Job Details
+              {isSubmitting ? "Saving Job..." : "Publish Job"}
             </button>
           </div>
 
           <p className="post-job-demo-note">
-            Demo mode: this form currently validates details only. It does not
-            publish or save a job.
+            Job details are submitted to the Campus Connect database.
           </p>
         </form>
       </div>
