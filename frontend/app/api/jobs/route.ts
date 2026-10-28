@@ -2,6 +2,41 @@ import { NextResponse } from "next/server";
 import { pool } from "@/lib/db";
 import { randomUUID } from "crypto";
 
+export async function GET() {
+  try {
+    const result = await pool.query(
+      `SELECT
+        id,
+        title,
+        company,
+        department,
+        location,
+        job_type,
+        work_mode,
+        salary,
+        deadline,
+        description,
+        responsibilities,
+        eligibility,
+        skills,
+        status,
+        applicants,
+        created_at
+      FROM jobs
+      ORDER BY created_at DESC`
+    );
+
+    return NextResponse.json({ jobs: result.rows });
+  } catch (error) {
+    console.error("Error fetching jobs:", error);
+
+    return NextResponse.json(
+      { error: "Unable to load jobs from the database." },
+      { status: 500 }
+    );
+  }
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
