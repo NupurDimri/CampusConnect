@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import {
   Search,
@@ -12,120 +11,162 @@ import {
   SlidersHorizontal,
 } from "lucide-react";
 
-const jobs = [
-  {
-    id: "1",
-    title: "Software Development Engineer",
-    company: "TechNova",
-    location: "Bengaluru, India",
-    type: "Full-time",
-    category: "Software Development",
-    salary: "₹6–10 LPA",
-    posted: "2 days ago",
-    description:
-      "Work with a development team to build, test, and maintain scalable software applications.",
-    skills: ["Java", "Python", "Data Structures"],
-  },
-  {
-    id: "2",
-    title: "Frontend Developer Intern",
-    company: "PixelCraft",
-    location: "Remote",
-    type: "Internship",
-    category: "Web Development",
-    salary: "₹15,000/month",
-    posted: "1 day ago",
-    description:
-      "Help create responsive web interfaces and improve the user experience of web applications.",
-    skills: ["React", "Next.js", "CSS"],
-  },
-  {
-    id: "3",
-    title: "Data Analyst",
-    company: "InsightWorks",
-    location: "Gurugram, India",
-    type: "Full-time",
-    category: "Data Science",
-    salary: "₹4–7 LPA",
-    posted: "3 days ago",
-    description:
-      "Analyze datasets, prepare reports, and help teams make data-informed decisions.",
-    skills: ["Python", "SQL", "Power BI"],
-  },
-  {
-    id: "4",
-    title: "Python Developer Intern",
-    company: "CodeBridge",
-    location: "Noida, India",
-    type: "Internship",
-    category: "Software Development",
-    salary: "₹12,000/month",
-    posted: "4 days ago",
-    description:
-      "Support backend development and write clean, maintainable Python code.",
-    skills: ["Python", "SQL", "Git"],
-  },
-  {
-    id: "5",
-    title: "UI/UX Design Intern",
-    company: "DesignNest",
-    location: "Remote",
-    type: "Internship",
-    category: "Design",
-    salary: "₹10,000/month",
-    posted: "5 days ago",
-    description:
-      "Assist in designing accessible interfaces, wireframes, and interactive prototypes.",
-    skills: ["Figma", "Wireframing", "Prototyping"],
-  },
-  {
-    id: "6",
-    title: "Junior Java Developer",
-    company: "CloudAxis",
-    location: "Pune, India",
-    type: "Full-time",
-    category: "Software Development",
-    salary: "₹5–8 LPA",
-    posted: "1 week ago",
-    description:
-      "Contribute to application development, testing, debugging, and code reviews.",
-    skills: ["Java", "SQL", "OOP"],
-  },
-];
+type Job = {
+  id: string;
+  title: string;
+  company: string;
+  department: string | null;
+  location: string;
+  job_type: string;
+  work_mode: string;
+  salary: string | null;
+  deadline: string | null;
+  description: string;
+  responsibilities: string | null;
+  eligibility: string | null;
+  skills: string | null;
+  status: "Active" | "Draft" | "Closed";
+  applicants: number;
+  created_at: string;
+};
 
-const categories = [
-  "All Categories",
-  "Software Development",
-  "Web Development",
-  "Data Science",
-  "Design",
-];
+function parseSkills(value: string | null): string[] {
+  if (!value?.trim()) return [];
+
+  return value
+    .split(/[,;\n]/)
+    .map((skill) => skill.trim())
+    .filter(Boolean);
+}
+
+function formatPostedDate(date: string): string {
+  const postedDate = new Date(date);
+
+  if (Number.isNaN(postedDate.getTime())) {
+    return "Recently posted";
+  }
+
+  const daysAgo = Math.max(
+    0,
+    Math.floor(
+      (Date.now() - postedDate.getTime()) / (1000 * 60 * 60 * 24)
+    )
+  );
+
+  if (daysAgo === 0) return "Today";
+  if (daysAgo === 1) return "1 day ago";
+  if (daysAgo < 7) return `${daysAgo} days ago`;
+  if (daysAgo < 14) return "1 week ago";
+  if (daysAgo < 30) return `${Math.floor(daysAgo / 7)} weeks ago`;
+
+  return postedDate.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
 
 export default function JobsPage() {
+  const [jobs, setJobs] = useState<Job[]>([]);
   const [search, setSearch] = useState("");
   const [location, setLocation] = useState("");
   const [jobType, setJobType] = useState("All Types");
   const [category, setCategory] = useState("All Categories");
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState("");
 
+  // Load jobs from the PostgreSQL-backed API.
+  useEffect(() => {
+    let cancelled = false;
+
+    async function loadJobs() {
+      setIsLoading(true);
+      setError("");
+
+      try {
+        const response = await fetch("/api/jobs");
+        const result = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            result.error || "Unable to load job opportunities."
+          );
+        }
+
+        if (!cancelled) {
+          // Only show active opportunities to students.
+          const activeJobs: Job[] = (result.jobs || []).filter(
+            (job: Job) => job.status === "Active"
+          );
+
+          setJobs(activeJobs);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Something went wrong while loading jobs."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setIsLoading(false);
+        }
+      }
+    }
+
+    loadJobs();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  // Build filter options from the jobs currently available.
+  const jobTypes = useMemo(() => {
+    return [
+      "All Types",
+      ...Array.from(new Set(jobs.map((job) => job.job_type).filter(Boolean))),
+    ];
+  }, [jobs]);
+
+  const categories = useMemo(() => {
+    const departments = jobs
+      .map((job) => job.department?.trim())
+      .filter((department): department is string => Boolean(department));
+
+    return [
+      "All Categories",
+      ...Array.from(new Set(departments)),
+    ];
+  }, [jobs]);
+
+  // Search and filter database records.
   const filteredJobs = useMemo(() => {
     const query = search.toLowerCase().trim();
     const place = location.toLowerCase().trim();
 
     return jobs.filter((job) => {
+      const skills = parseSkills(job.skills);
+
       const matchesSearch =
         !query ||
         job.title.toLowerCase().includes(query) ||
         job.company.toLowerCase().includes(query) ||
-        job.skills.some((skill) => skill.toLowerCase().includes(query));
+        (job.department || "").toLowerCase().includes(query) ||
+        skills.some((skill) => skill.toLowerCase().includes(query));
 
       const matchesLocation =
-        !place || job.location.toLowerCase().includes(place);
+        !place ||
+        job.location.toLowerCase().includes(place) ||
+        job.work_mode.toLowerCase().includes(place);
 
       const matchesType =
-        jobType === "All Types" || job.type === jobType;
+        jobType === "All Types" || job.job_type === jobType;
 
       const matchesCategory =
-        category === "All Categories" || job.category === category;
+        category === "All Categories" || job.department === category;
 
       return (
         matchesSearch &&
@@ -134,22 +175,35 @@ export default function JobsPage() {
         matchesCategory
       );
     });
-  }, [search, location, jobType, category]);
+  }, [jobs, search, location, jobType, category]);
+
+  function clearFilters() {
+    setSearch("");
+    setLocation("");
+    setJobType("All Types");
+    setCategory("All Categories");
+  }
 
   return (
     <div className="jobs-page">
+      {/* Hero and search */}
       <section className="jobs-hero">
         <div className="container">
-          <span className="section-kicker">YOUR CAREER STARTS HERE</span>
+          <span className="section-kicker">
+            YOUR CAREER STARTS HERE
+          </span>
+
           <h1>Find the opportunity that fits your future.</h1>
+
           <p>
-            Explore internships and job opportunities designed to help you take
-            the next step in your career.
+            Explore internships and job opportunities designed to help
+            you take the next step in your career.
           </p>
 
           <div className="jobs-search-panel">
             <label className="jobs-search-field">
               <Search size={19} />
+
               <input
                 type="text"
                 placeholder="Job title, company, or skill"
@@ -160,6 +214,7 @@ export default function JobsPage() {
 
             <label className="jobs-search-field">
               <MapPin size={19} />
+
               <input
                 type="text"
                 placeholder="City or Remote"
@@ -183,15 +238,25 @@ export default function JobsPage() {
         </div>
       </section>
 
+      {/* Available jobs */}
       <section className="jobs-content" id="job-listings">
         <div className="container">
           <div className="jobs-results-heading">
             <div>
-              <span className="section-kicker">EXPLORE OPPORTUNITIES</span>
+              <span className="section-kicker">
+                EXPLORE OPPORTUNITIES
+              </span>
+
               <h2>Available positions</h2>
+
               <p>
-                Showing {filteredJobs.length}{" "}
-                {filteredJobs.length === 1 ? "opportunity" : "opportunities"}
+                {isLoading
+                  ? "Loading opportunities..."
+                  : `Showing ${filteredJobs.length} ${
+                      filteredJobs.length === 1
+                        ? "opportunity"
+                        : "opportunities"
+                    }`}
               </p>
             </div>
 
@@ -201,21 +266,24 @@ export default function JobsPage() {
             </div>
           </div>
 
+          {/* Filters */}
           <div className="jobs-filters">
             <label>
               <span>Job type</span>
+
               <select
                 value={jobType}
                 onChange={(event) => setJobType(event.target.value)}
               >
-                <option>All Types</option>
-                <option>Full-time</option>
-                <option>Internship</option>
+                {jobTypes.map((type) => (
+                  <option key={type}>{type}</option>
+                ))}
               </select>
             </label>
 
             <label>
               <span>Category</span>
+
               <select
                 value={category}
                 onChange={(event) => setCategory(event.target.value)}
@@ -229,86 +297,133 @@ export default function JobsPage() {
             <button
               type="button"
               className="jobs-clear-button"
-              onClick={() => {
-                setSearch("");
-                setLocation("");
-                setJobType("All Types");
-                setCategory("All Categories");
-              }}
+              onClick={clearFilters}
             >
               Clear filters
             </button>
           </div>
 
-          {filteredJobs.length > 0 ? (
-            <div className="jobs-grid">
-              {filteredJobs.map((job) => (
-                <article className="job-card" key={job.id}>
-                  <div className="job-card-top">
-                    <div className="job-company-icon">
-                      <BriefcaseBusiness size={24} />
-                    </div>
-                    <span className="job-type-badge">{job.type}</span>
-                  </div>
-
-                  <p className="job-company">{job.company}</p>
-                  <h3>{job.title}</h3>
-                  <p className="job-description">{job.description}</p>
-
-                  <div className="job-meta">
-                    <span>
-                      <MapPin size={15} />
-                      {job.location}
-                    </span>
-                    <span>
-                      <Clock3 size={15} />
-                      {job.posted}
-                    </span>
-                  </div>
-
-                  <div className="job-skills">
-                    {job.skills.map((skill) => (
-                      <span key={skill}>{skill}</span>
-                    ))}
-                  </div>
-
-                  <div className="job-card-bottom">
-                    <div>
-                      <small>Compensation</small>
-                      <strong>{job.salary}</strong>
-                    </div>
-
-                    <Link
-                      href={`/jobs/${job.id}`}
-                      className="job-details-link"
-                      aria-label={`View details for ${job.title}`}
-                    >
-                      View details <ArrowUpRight size={17} />
-                    </Link>
-                  </div>
-                </article>
-              ))}
-            </div>
-          ) : (
+          {/* Loading state */}
+          {isLoading ? (
             <div className="jobs-empty-state">
-              <Search size={32} />
-              <h3>No matching opportunities</h3>
+              <Clock3 size={32} />
+              <h3>Loading opportunities</h3>
               <p>
-                Try another job title, location, or category, or clear your
-                filters to see all available positions.
+                Please wait while we retrieve the latest jobs.
               </p>
+            </div>
+          ) : error ? (
+            /* API error state */
+            <div className="jobs-empty-state" role="alert">
+              <BriefcaseBusiness size={32} />
+              <h3>Unable to load jobs</h3>
+              <p>{error}</p>
+
               <button
                 type="button"
                 className="button button-primary"
-                onClick={() => {
-                  setSearch("");
-                  setLocation("");
-                  setJobType("All Types");
-                  setCategory("All Categories");
-                }}
+                onClick={() => window.location.reload()}
               >
-                Show all jobs
+                Try again
               </button>
+            </div>
+          ) : filteredJobs.length > 0 ? (
+            /* Job cards */
+            <div className="jobs-grid">
+              {filteredJobs.map((job) => {
+                const skills = parseSkills(job.skills);
+
+                return (
+                  <article className="job-card" key={job.id}>
+                    <div className="job-card-top">
+                      <div className="job-company-icon">
+                        <BriefcaseBusiness size={24} />
+                      </div>
+
+                      <span className="job-type-badge">
+                        {job.job_type}
+                      </span>
+                    </div>
+
+                    <p className="job-company">{job.company}</p>
+
+                    <h3>{job.title}</h3>
+
+                    <p className="job-description">
+                      {job.description}
+                    </p>
+
+                    <div className="job-meta">
+                      <span>
+                        <MapPin size={15} />
+                        {job.location}
+                      </span>
+
+                      <span>
+                        <Clock3 size={15} />
+                        {formatPostedDate(job.created_at)}
+                      </span>
+                    </div>
+
+                    {skills.length > 0 && (
+                      <div className="job-skills">
+                        {skills.map((skill, index) => (
+                          <span key={`${skill}-${index}`}>
+                            {skill}
+                          </span>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="job-card-bottom">
+                      <div>
+                        <small>Compensation</small>
+                        <strong>
+                          {job.salary || "Not disclosed"}
+                        </strong>
+                      </div>
+
+                      <Link
+                        href={`/jobs/${job.id}`}
+                        className="job-details-link"
+                        aria-label={`View details for ${job.title}`}
+                      >
+                        View details <ArrowUpRight size={17} />
+                      </Link>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          ) : (
+            /* Empty state */
+            <div className="jobs-empty-state">
+              <Search size={32} />
+
+              <h3>
+                {jobs.length === 0
+                  ? "No active opportunities yet"
+                  : "No matching opportunities"}
+              </h3>
+
+              <p>
+                {jobs.length === 0
+                  ? "New opportunities will appear here when recruiters publish active jobs."
+                  : "Try another job title, location, or category, or clear your filters to see all available positions."}
+              </p>
+
+              {(search ||
+                location ||
+                jobType !== "All Types" ||
+                category !== "All Categories") && (
+                <button
+                  type="button"
+                  className="button button-primary"
+                  onClick={clearFilters}
+                >
+                  Show all jobs
+                </button>
+              )}
             </div>
           )}
         </div>
