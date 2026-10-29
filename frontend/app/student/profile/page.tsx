@@ -1,7 +1,6 @@
-
 "use client";
 
-import { useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import {
   ArrowLeft,
@@ -30,41 +29,174 @@ type Profile = {
   interests: string;
 };
 
-const initialProfile: Profile = {
-  fullName: "Student Name",
-  email: "student@example.com",
+type ApiProfile = Profile & {
+  resumeName?: string;
+  resumeUrl?: string;
+  profilePictureUrl?: string;
+};
+
+const emptyProfile: Profile = {
+  fullName: "",
+  email: "",
   phone: "",
   location: "",
   college: "",
-  degree: "B.Tech",
+  degree: "",
   branch: "",
-  graduationYear: "2027",
+  graduationYear: "",
   cgpa: "",
   skills: "",
   interests: "",
 };
 
 export default function StudentProfilePage() {
-  const [profile, setProfile] = useState<Profile>(initialProfile);
+  const [profile, setProfile] = useState<Profile>(emptyProfile);
+  const [originalProfile, setOriginalProfile] =
+    useState<Profile>(emptyProfile);
+
   const [editing, setEditing] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [error, setError] = useState("");
+
   const [resumeName, setResumeName] = useState("");
   const [resumeError, setResumeError] = useState("");
+
   const resumeInput = useRef<HTMLInputElement>(null);
+
+  const loadProfile = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError("");
+
+      const response = await fetch("/api/student/profile", {
+        method: "GET",
+        cache: "no-store",
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Unable to load your profile.");
+      }
+
+      const apiProfile = data.profile as ApiProfile;
+
+      if (!apiProfile) {
+        throw new Error("The server did not return your profile.");
+      }
+
+      const loadedProfile: Profile = {
+        fullName: String(apiProfile.fullName ?? ""),
+        email: String(apiProfile.email ?? ""),
+        phone: String(apiProfile.phone ?? ""),
+        location: String(apiProfile.location ?? ""),
+        college: String(apiProfile.college ?? ""),
+        degree: String(apiProfile.degree ?? ""),
+        branch: String(apiProfile.branch ?? ""),
+        graduationYear: String(apiProfile.graduationYear ?? ""),
+        cgpa: String(apiProfile.cgpa ?? ""),
+        skills: String(apiProfile.skills ?? ""),
+        interests: String(apiProfile.interests ?? ""),
+      };
+
+      setProfile(loadedProfile);
+      setOriginalProfile(loadedProfile);
+      setResumeName(apiProfile.resumeName ?? "");
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while loading your profile."
+      );
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void loadProfile();
+  }, [loadProfile]);
 
   function updateField(field: keyof Profile, value: string) {
     setProfile((previous) => ({ ...previous, [field]: value }));
     setSaved(false);
+    setError("");
   }
 
-  function handleSave() {
-    if (!profile.fullName.trim() || !profile.email.trim()) {
-      alert("Please enter your name and email address.");
+  async function handleSave() {
+    if (!profile.fullName.trim()) {
+      setError("Please enter your full name.");
       return;
     }
 
+    if (
+      profile.cgpa.trim() !== "" &&
+      (!Number.isFinite(Number(profile.cgpa)) ||
+        Number(profile.cgpa) < 0 ||
+        Number(profile.cgpa) > 10)
+    ) {
+      setError("CGPA must be between 0 and 10.");
+      return;
+    }
+
+    setSaving(true);
+    setSaved(false);
+    setError("");
+
+    try {
+      const response = await fetch("/api/student/profile", {
+        method: "PUT",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify(profile),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Unable to save your profile.");
+      }
+
+      const apiProfile = data.profile as ApiProfile;
+
+      const updatedProfile: Profile = {
+        fullName: String(apiProfile.fullName ?? ""),
+        email: String(apiProfile.email ?? ""),
+        phone: String(apiProfile.phone ?? ""),
+        location: String(apiProfile.location ?? ""),
+        college: String(apiProfile.college ?? ""),
+        degree: String(apiProfile.degree ?? ""),
+        branch: String(apiProfile.branch ?? ""),
+        graduationYear: String(apiProfile.graduationYear ?? ""),
+        cgpa: String(apiProfile.cgpa ?? ""),
+        skills: String(apiProfile.skills ?? ""),
+        interests: String(apiProfile.interests ?? ""),
+      };
+
+      setProfile(updatedProfile);
+      setOriginalProfile(updatedProfile);
+      setResumeName(apiProfile.resumeName ?? "");
+      setEditing(false);
+      setSaved(true);
+    } catch (err) {
+      setError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while saving your profile."
+      );
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function handleCancel() {
+    setProfile(originalProfile);
     setEditing(false);
-    setSaved(true);
+    setSaved(false);
+    setError("");
   }
 
   function handleResume(event: React.ChangeEvent<HTMLInputElement>) {
@@ -95,6 +227,18 @@ export default function StudentProfilePage() {
     setSaved(false);
   }
 
+  if (loading) {
+    return (
+      <div className="profile-page">
+        <div className="profile-container">
+          <p className="py-12 text-center text-gray-500">
+            Loading your profile...
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="profile-page">
       <div className="profile-container">
@@ -120,6 +264,7 @@ export default function StudentProfilePage() {
               onClick={() => {
                 setEditing(true);
                 setSaved(false);
+                setError("");
               }}
             >
               <Pencil size={17} />
@@ -129,19 +274,34 @@ export default function StudentProfilePage() {
             <button
               type="button"
               className="profile-edit-button"
+              disabled={saving}
               onClick={handleSave}
             >
               <Save size={17} />
-              Save Changes
+              {saving ? "Saving..." : "Save Changes"}
             </button>
           )}
         </div>
 
+        {error && (
+          <div className="profile-resume-error" role="alert">
+            {error}
+            {!editing && (
+              <button
+                type="button"
+                className="ml-2 underline"
+                onClick={() => void loadProfile()}
+              >
+                Try again
+              </button>
+            )}
+          </div>
+        )}
+
         {saved && (
           <div className="profile-success-message" role="status">
             <CheckCircle2 size={19} />
-            Your changes are saved for this session. They are not stored in a
-            database yet.
+            Your profile has been saved to the database successfully.
           </div>
         )}
 
@@ -173,7 +333,7 @@ export default function StudentProfilePage() {
 
             <div className="profile-summary-item">
               <FileText size={18} />
-              <span>{resumeName || "No resume selected"}</span>
+              <span>{resumeName || "No resume uploaded"}</span>
             </div>
 
             <div className="profile-summary-note">
@@ -202,7 +362,7 @@ export default function StudentProfilePage() {
                   Full Name *
                   <input
                     value={profile.fullName}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("fullName", e.target.value)}
                     placeholder="Enter your full name"
                   />
@@ -213,9 +373,8 @@ export default function StudentProfilePage() {
                   <input
                     type="email"
                     value={profile.email}
-                    disabled={!editing}
-                    onChange={(e) => updateField("email", e.target.value)}
-                    placeholder="you@example.com"
+                    disabled
+                    readOnly
                   />
                 </label>
 
@@ -224,7 +383,7 @@ export default function StudentProfilePage() {
                   <input
                     type="tel"
                     value={profile.phone}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("phone", e.target.value)}
                     placeholder="Enter your phone number"
                   />
@@ -234,7 +393,7 @@ export default function StudentProfilePage() {
                   Location
                   <input
                     value={profile.location}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("location", e.target.value)}
                     placeholder="City, State"
                   />
@@ -258,7 +417,7 @@ export default function StudentProfilePage() {
                   College / University
                   <input
                     value={profile.college}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("college", e.target.value)}
                     placeholder="Enter your college name"
                   />
@@ -268,9 +427,10 @@ export default function StudentProfilePage() {
                   Degree
                   <select
                     value={profile.degree}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("degree", e.target.value)}
                   >
+                    <option value="">Select degree</option>
                     <option>B.Tech</option>
                     <option>B.E.</option>
                     <option>BCA</option>
@@ -288,7 +448,7 @@ export default function StudentProfilePage() {
                   Branch / Specialization
                   <input
                     value={profile.branch}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("branch", e.target.value)}
                     placeholder="e.g. Computer Science"
                   />
@@ -298,11 +458,12 @@ export default function StudentProfilePage() {
                   Graduation Year
                   <select
                     value={profile.graduationYear}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) =>
                       updateField("graduationYear", e.target.value)
                     }
                   >
+                    <option value="">Select year</option>
                     {Array.from({ length: 8 }, (_, i) => 2024 + i).map(
                       (year) => (
                         <option key={year} value={String(year)}>
@@ -321,7 +482,7 @@ export default function StudentProfilePage() {
                     max="10"
                     step="0.01"
                     value={profile.cgpa}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("cgpa", e.target.value)}
                     placeholder="e.g. 8.25"
                   />
@@ -335,7 +496,7 @@ export default function StudentProfilePage() {
                   <CheckCircle2 size={20} />
                 </div>
                 <div>
-                  <h2>Skills & Interests</h2>
+                  <h2>Skills &amp; Interests</h2>
                   <p>Help recruiters understand your strengths</p>
                 </div>
               </div>
@@ -346,7 +507,7 @@ export default function StudentProfilePage() {
                   <textarea
                     rows={3}
                     value={profile.skills}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("skills", e.target.value)}
                     placeholder="e.g. Python, Java, React, SQL"
                   />
@@ -360,7 +521,7 @@ export default function StudentProfilePage() {
                   <textarea
                     rows={3}
                     value={profile.interests}
-                    disabled={!editing}
+                    disabled={!editing || saving}
                     onChange={(e) => updateField("interests", e.target.value)}
                     placeholder="e.g. Web Development, Data Science, Software Engineering"
                   />
@@ -395,14 +556,14 @@ export default function StudentProfilePage() {
                   type="file"
                   accept=".pdf,.doc,.docx"
                   onChange={handleResume}
-                  disabled={!editing}
+                  disabled={!editing || saving}
                   aria-label="Choose resume file"
                 />
 
                 <button
                   type="button"
                   className="profile-upload-button"
-                  disabled={!editing}
+                  disabled={!editing || saving}
                   onClick={() => resumeInput.current?.click()}
                 >
                   <Upload size={16} />
@@ -416,25 +577,31 @@ export default function StudentProfilePage() {
 
               {resumeName && (
                 <p className="profile-field-hint">
-                  File selected in this browser session. It has not been
-                  uploaded to a server.
+                  Resume selection is currently local only; the file has not
+                  been uploaded to the server.
                 </p>
               )}
             </section>
 
             <div className="profile-bottom-actions">
-              <Link href="/student" className="profile-cancel-button">
-                Back to Dashboard
-              </Link>
+              <button
+                type="button"
+                className="profile-cancel-button"
+                onClick={editing ? handleCancel : () => history.back()}
+                disabled={saving}
+              >
+                {editing ? "Cancel Changes" : "Back"}
+              </button>
 
               {editing && (
                 <button
                   type="button"
                   className="profile-edit-button"
                   onClick={handleSave}
+                  disabled={saving}
                 >
                   <Save size={17} />
-                  Save Changes
+                  {saving ? "Saving..." : "Save Changes"}
                 </button>
               )}
             </div>
