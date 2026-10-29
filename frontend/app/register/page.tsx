@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import Link from "next/link";
-
 import {
   GraduationCap,
   Mail,
@@ -16,7 +15,7 @@ import {
 } from "lucide-react";
 
 export default function RegisterPage() {
-  const [role, setRole] = useState("Student");
+  const [role, setRole] = useState<"Student" | "Recruiter">("Student");
   const [showPassword, setShowPassword] = useState(false);
   const [fullName, setFullName] = useState("");
   const [email, setEmail] = useState("");
@@ -25,11 +24,18 @@ export default function RegisterPage() {
   const [confirmPassword, setConfirmPassword] = useState("");
   const [agree, setAgree] = useState(false);
   const [message, setMessage] = useState("");
-  const [messageType, setMessageType] = useState<"error" | "success">("error");
+  const [messageType, setMessageType] = useState<"error" | "success">(
+    "error"
+  );
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
     setMessage("");
+
+    if (isSubmitting) return;
 
     if (password.length < 8) {
       setMessageType("error");
@@ -43,16 +49,64 @@ export default function RegisterPage() {
       return;
     }
 
+    if (role === "Recruiter" && !organization.trim()) {
+      setMessageType("error");
+      setMessage("Please enter your company name.");
+      return;
+    }
+
     if (!agree) {
       setMessageType("error");
       setMessage("Please agree to the terms to continue.");
       return;
     }
 
-    setMessageType("success");
-    setMessage(
-      "Your form looks good! Account creation will be enabled when authentication and the backend are connected."
-    );
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/auth/register", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          fullName: fullName.trim(),
+          email: email.trim().toLowerCase(),
+          password,
+          role,
+          organization:
+            role === "Recruiter" ? organization.trim() : "",
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setMessageType("error");
+        setMessage(data.message || "Unable to create your account.");
+        return;
+      }
+
+      setMessageType("success");
+      setMessage(
+        "Account created successfully! You can now sign in."
+      );
+
+      setFullName("");
+      setEmail("");
+      setOrganization("");
+      setPassword("");
+      setConfirmPassword("");
+      setAgree(false);
+      setShowPassword(false);
+    } catch {
+      setMessageType("error");
+      setMessage(
+        "Unable to connect to the server. Please try again."
+      );
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -67,7 +121,9 @@ export default function RegisterPage() {
           </Link>
 
           <span className="section-kicker">START YOUR JOURNEY</span>
+
           <h1>Build connections that move your career forward.</h1>
+
           <p>
             Create your account to discover opportunities, connect with
             employers, and manage your placement journey.
@@ -78,6 +134,7 @@ export default function RegisterPage() {
               <span className="auth-benefit-icon">
                 <UserRound size={20} />
               </span>
+
               <div>
                 <strong>A profile built around you</strong>
                 <p>Keep your essential account details organized.</p>
@@ -88,9 +145,13 @@ export default function RegisterPage() {
               <span className="auth-benefit-icon">
                 <BriefcaseBusiness size={20} />
               </span>
+
               <div>
                 <strong>Opportunities in one place</strong>
-                <p>Discover jobs and internships as you prepare for your next step.</p>
+                <p>
+                  Discover jobs and internships as you prepare for your
+                  next step.
+                </p>
               </div>
             </div>
           </div>
@@ -102,10 +163,14 @@ export default function RegisterPage() {
             <p>Fill in your details to get started.</p>
           </div>
 
-          <div className="auth-role-selector" aria-label="Choose account type">
+          <div
+            className="auth-role-selector"
+            aria-label="Choose account type"
+          >
             <button
               type="button"
               className={role === "Student" ? "active" : ""}
+              aria-pressed={role === "Student"}
               onClick={() => {
                 setRole("Student");
                 setOrganization("");
@@ -119,6 +184,7 @@ export default function RegisterPage() {
             <button
               type="button"
               className={role === "Recruiter" ? "active" : ""}
+              aria-pressed={role === "Recruiter"}
               onClick={() => {
                 setRole("Recruiter");
                 setOrganization("");
@@ -134,8 +200,10 @@ export default function RegisterPage() {
             <label htmlFor="register-name">
               {role === "Student" ? "Full name" : "Recruiter name"}
             </label>
+
             <div className="auth-input-wrap">
               <UserRound size={18} />
+
               <input
                 id="register-name"
                 type="text"
@@ -143,21 +211,30 @@ export default function RegisterPage() {
                 autoComplete="name"
                 value={fullName}
                 onChange={(event) => setFullName(event.target.value)}
+                maxLength={150}
                 required
               />
             </div>
 
             {role === "Recruiter" && (
               <>
-                <label htmlFor="register-organization">Company name</label>
+                <label htmlFor="register-organization">
+                  Company name
+                </label>
+
                 <div className="auth-input-wrap">
                   <Building2 size={18} />
+
                   <input
                     id="register-organization"
                     type="text"
                     placeholder="Enter your company name"
+                    autoComplete="organization"
                     value={organization}
-                    onChange={(event) => setOrganization(event.target.value)}
+                    onChange={(event) =>
+                      setOrganization(event.target.value)
+                    }
+                    maxLength={200}
                     required
                   />
                 </div>
@@ -165,8 +242,10 @@ export default function RegisterPage() {
             )}
 
             <label htmlFor="register-email">Email address</label>
+
             <div className="auth-input-wrap">
               <Mail size={18} />
+
               <input
                 id="register-email"
                 type="email"
@@ -174,13 +253,16 @@ export default function RegisterPage() {
                 autoComplete="email"
                 value={email}
                 onChange={(event) => setEmail(event.target.value)}
+                maxLength={255}
                 required
               />
             </div>
 
             <label htmlFor="register-password">Password</label>
+
             <div className="auth-input-wrap">
               <LockKeyhole size={18} />
+
               <input
                 id="register-password"
                 type={showPassword ? "text" : "password"}
@@ -189,28 +271,44 @@ export default function RegisterPage() {
                 value={password}
                 onChange={(event) => setPassword(event.target.value)}
                 minLength={8}
+                maxLength={72}
                 required
               />
+
               <button
                 type="button"
                 className="auth-password-toggle"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={
+                  showPassword ? "Hide password" : "Show password"
+                }
                 onClick={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? (
+                  <EyeOff size={18} />
+                ) : (
+                  <Eye size={18} />
+                )}
               </button>
             </div>
 
-            <label htmlFor="confirm-password">Confirm password</label>
+            <label htmlFor="confirm-password">
+              Confirm password
+            </label>
+
             <div className="auth-input-wrap">
               <LockKeyhole size={18} />
+
               <input
                 id="confirm-password"
                 type="password"
                 placeholder="Re-enter your password"
                 autoComplete="new-password"
                 value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
+                onChange={(event) =>
+                  setConfirmPassword(event.target.value)
+                }
+                minLength={8}
+                maxLength={72}
                 required
               />
             </div>
@@ -221,32 +319,47 @@ export default function RegisterPage() {
                 checked={agree}
                 onChange={(event) => setAgree(event.target.checked)}
               />
+
               <span>
-                I agree to the <Link href="/terms">Terms of Service</Link> and{" "}
+                I agree to the{" "}
+                <Link href="/terms">Terms of Service</Link> and{" "}
                 <Link href="/privacy">Privacy Policy</Link>.
               </span>
             </label>
 
             {message && (
               <p
-                className={`auth-message ${messageType === "success" ? "auth-message-success" : ""}`}
-                role="status"
+                className={`auth-message ${
+                  messageType === "success"
+                    ? "auth-message-success"
+                    : ""
+                }`}
+                role={messageType === "error" ? "alert" : "status"}
               >
                 {message}
               </p>
             )}
 
-            <button type="submit" className="button button-primary auth-submit">
-              Create Account <ArrowRight size={18} />
+            <button
+              type="submit"
+              className="button button-primary auth-submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting
+                ? "Creating Account..."
+                : "Create Account"}
+
+              {!isSubmitting && <ArrowRight size={18} />}
             </button>
           </form>
 
           <p className="auth-switch">
-            Already have an account? <Link href="/login">Sign in</Link>
+            Already have an account?{" "}
+            <Link href="/login">Sign in</Link>
           </p>
 
           <p className="auth-demo-note">
-            Demo interface · Account details are not saved.
+            Registration connected to Campus Connect.
           </p>
         </div>
       </div>
