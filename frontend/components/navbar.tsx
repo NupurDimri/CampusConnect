@@ -7,10 +7,15 @@ import {
   X,
   GraduationCap,
   ArrowRight,
+  UserRound,
+  LogOut,
+  LayoutDashboard,
 } from "lucide-react";
+import { useAuth } from "@/context/AuthContext";
 
 export default function Navbar() {
   const [menuOpen, setMenuOpen] = useState(false);
+  const { currentUser, isLoading, logout } = useAuth();
 
   const links = [
     { label: "Home", href: "/" },
@@ -19,10 +24,21 @@ export default function Navbar() {
     { label: "About Us", href: "/about" },
   ];
 
+  const dashboardHref =
+    currentUser?.role === "Student"
+      ? "/student"
+      : currentUser?.role === "Recruiter"
+        ? "/recruiter"
+        : "/admin";
+
   return (
     <header className="site-header">
       <nav className="navbar container">
-        <Link href="/" className="brand">
+        <Link
+          href="/"
+          className="brand"
+          onClick={() => setMenuOpen(false)}
+        >
           <span className="brand-icon">
             <GraduationCap size={25} />
           </span>
@@ -45,26 +61,71 @@ export default function Navbar() {
             </Link>
           ))}
 
-          <Link
-            href="/login"
-            className="mobile-login"
-            onClick={() => setMenuOpen(false)}
-          >
-            Login
-          </Link>
+          {!isLoading && currentUser ? (
+            <>
+              <Link
+                href={dashboardHref}
+                className="mobile-login"
+                onClick={() => setMenuOpen(false)}
+              >
+                Dashboard
+              </Link>
+
+              <button
+                type="button"
+                className="mobile-login"
+                onClick={() => {
+                  setMenuOpen(false);
+                  void logout();
+                }}
+              >
+                <LogOut size={16} /> Logout
+              </button>
+            </>
+          ) : (
+            <Link
+              href="/login"
+              className="mobile-login"
+              onClick={() => setMenuOpen(false)}
+            >
+              Login
+            </Link>
+          )}
         </div>
 
         <div className="nav-actions">
-          <Link href="/login" className="login-link">
-            Login
-          </Link>
+          {isLoading ? (
+            <span aria-label="Loading account">...</span>
+          ) : currentUser ? (
+            <>
+              <Link href={dashboardHref} className="login-link">
+                <LayoutDashboard size={17} />
+                Dashboard
+              </Link>
 
-          <Link
-            href="/register"
-            className="button button-primary nav-cta"
-          >
-            Get Started <ArrowRight size={16} />
-          </Link>
+              <button
+                type="button"
+                className="button button-primary nav-cta"
+                onClick={() => void logout()}
+              >
+                <LogOut size={16} />
+                Logout
+              </button>
+            </>
+          ) : (
+            <>
+              <Link href="/login" className="login-link">
+                Login
+              </Link>
+
+              <Link
+                href="/register"
+                className="button button-primary nav-cta"
+              >
+                Get Started <ArrowRight size={16} />
+              </Link>
+            </>
+          )}
         </div>
 
         <button
