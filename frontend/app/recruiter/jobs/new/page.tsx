@@ -251,10 +251,12 @@ export default function PostJobPage() {
                     type="date"
                     name="deadline"
                     value={form.deadline}
-                    onChange={handleChange}
-                    min={today || undefined}
-                    onChangeCapture={() => setMessage("")}
-                    required
+                    onChange={(event) => {
+                    handleChange(event);
+                    setMessage("");
+                  }}
+                  min={today || undefined}
+                  required
                   />
                 </span>
               </label>
