@@ -13,26 +13,74 @@ import {
   BriefcaseBusiness,
 } from "lucide-react";
 
+type UserRole = "Student" | "Recruiter" | "Admin";
+
 export default function LoginPage() {
   const router = useRouter();
-  const [role, setRole] = useState("Student");
+
+  const [role, setRole] = useState<"Student" | "Recruiter">("Student");
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
-  function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
+  async function handleSubmit(
+    event: React.FormEvent<HTMLFormElement>
+  ) {
     event.preventDefault();
     setError("");
+
+    if (isSubmitting) return;
 
     if (!email.trim() || !password) {
       setError("Please enter your email and password.");
       return;
     }
 
-    setError(
-      "Login is not connected yet. Authentication will be enabled when the backend is ready."
-    );
+    setIsSubmitting(true);
+
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          email: email.trim().toLowerCase(),
+          password,
+        }),
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.message || "Unable to sign in. Please try again.");
+        return;
+      }
+
+      const userRole = data.user?.role as UserRole | undefined;
+
+      const dashboardRoutes: Record<UserRole, string> = {
+        Student: "/student",
+        Recruiter: "/recruiter",
+        Admin: "/admin",
+      };
+
+      if (!userRole || !(userRole in dashboardRoutes)) {
+        setError("Your account has an invalid role. Please contact support.");
+        return;
+      }
+
+      // The login API determines the user's role from PostgreSQL.
+      // The role selector is only a UI preference, not authorization.
+      router.replace(dashboardRoutes[userRole]);
+      router.refresh();
+    } catch {
+      setError("Unable to connect to the server. Please try again.");
+    } finally {
+      setIsSubmitting(false);
+    }
   }
 
   return (
@@ -47,7 +95,9 @@ export default function LoginPage() {
           </Link>
 
           <span className="section-kicker">WELCOME BACK</span>
+
           <h1>Your next opportunity starts with a simple step.</h1>
+
           <p>
             Sign in to explore opportunities, manage your applications, and
             stay connected throughout your placement journey.
@@ -58,6 +108,7 @@ export default function LoginPage() {
               <span className="auth-benefit-icon">
                 <BriefcaseBusiness size={20} />
               </span>
+
               <div>
                 <strong>Explore opportunities</strong>
                 <p>Find jobs and internships that fit your goals.</p>
@@ -68,6 +119,7 @@ export default function LoginPage() {
               <span className="auth-benefit-icon">
                 <GraduationCap size={20} />
               </span>
+
               <div>
                 <strong>Manage your journey</strong>
                 <p>Keep your career activities organized in one place.</p>
@@ -86,6 +138,7 @@ export default function LoginPage() {
             <button
               type="button"
               className={role === "Student" ? "active" : ""}
+              aria-pressed={role === "Student"}
               onClick={() => setRole("Student")}
             >
               <GraduationCap size={17} />
@@ -95,6 +148,7 @@ export default function LoginPage() {
             <button
               type="button"
               className={role === "Recruiter" ? "active" : ""}
+              aria-pressed={role === "Recruiter"}
               onClick={() => setRole("Recruiter")}
             >
               <BriefcaseBusiness size={17} />
@@ -104,8 +158,10 @@ export default function LoginPage() {
 
           <form className="auth-form" onSubmit={handleSubmit}>
             <label htmlFor="login-email">Email address</label>
+
             <div className="auth-input-wrap">
               <Mail size={18} />
+
               <input
                 id="login-email"
                 type="email"
@@ -118,8 +174,10 @@ export default function LoginPage() {
             </div>
 
             <label htmlFor="login-password">Password</label>
+
             <div className="auth-input-wrap">
               <LockKeyhole size={18} />
+
               <input
                 id="login-password"
                 type={showPassword ? "text" : "password"}
@@ -129,13 +187,20 @@ export default function LoginPage() {
                 onChange={(event) => setPassword(event.target.value)}
                 required
               />
+
               <button
                 type="button"
                 className="auth-password-toggle"
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={
+                  showPassword ? "Hide password" : "Show password"
+                }
                 onClick={() => setShowPassword(!showPassword)}
               >
-                {showPassword ? <EyeOff size={18} /> : <Eye size={18} />}
+                {showPassword ? (
+                  <EyeOff size={18} />
+                ) : (
+                  <Eye size={18} />
+                )}
               </button>
             </div>
 
@@ -144,6 +209,7 @@ export default function LoginPage() {
                 <input type="checkbox" />
                 <span>Remember me</span>
               </label>
+
               <Link href="/forgot-password">Forgot password?</Link>
             </div>
 
@@ -153,17 +219,24 @@ export default function LoginPage() {
               </p>
             )}
 
-            <button type="submit" className="button button-primary auth-submit">
-              Sign In <ArrowRight size={18} />
+            <button
+              type="submit"
+              className="button button-primary auth-submit"
+              disabled={isSubmitting}
+            >
+              {isSubmitting ? "Signing In..." : "Sign In"}
+
+              {!isSubmitting && <ArrowRight size={18} />}
             </button>
           </form>
 
           <p className="auth-switch">
-            Don&apos;t have an account? <Link href="/register">Create one</Link>
+            Don&apos;t have an account?{" "}
+            <Link href="/register">Create one</Link>
           </p>
 
           <p className="auth-demo-note">
-            Demo interface · No credentials are verified or stored.
+            Secure sign-in · Campus Connect
           </p>
         </div>
       </div>
