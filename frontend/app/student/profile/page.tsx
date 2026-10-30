@@ -29,10 +29,10 @@ type Profile = {
   interests: string;
 };
 
-type ApiProfile = Profile & {
+type ApiProfile = Partial<Profile> & {
   resumeName?: string;
   resumeUrl?: string;
-  profilePictureUrl?: string;
+  profilePictureUrl?: string | null;
 };
 
 const emptyProfile: Profile = {
@@ -49,6 +49,13 @@ const emptyProfile: Profile = {
   interests: "",
 };
 
+const MAX_PICTURE_SIZE = 2 * 1024 * 1024;
+const ALLOWED_PICTURE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+];
+
 export default function StudentProfilePage() {
   const [profile, setProfile] = useState<Profile>(emptyProfile);
   const [originalProfile, setOriginalProfile] =
@@ -58,18 +65,26 @@ export default function StudentProfilePage() {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [saved, setSaved] = useState(false);
+
   const [error, setError] = useState("");
+  const [resumeError, setResumeError] = useState("");
+  const [pictureError, setPictureError] = useState("");
+  const [pictureSuccess, setPictureSuccess] = useState("");
 
   const [resumeName, setResumeName] = useState("");
-  const [resumeError, setResumeError] = useState("");
+  const [resumeUrl, setResumeUrl] = useState("");
+
+  const [profilePictureUrl, setProfilePictureUrl] = useState("");
+  const [uploadingPicture, setUploadingPicture] = useState(false);
 
   const resumeInput = useRef<HTMLInputElement>(null);
+  const pictureInput = useRef<HTMLInputElement>(null);
 
   const loadProfile = useCallback(async () => {
-    try {
-      setLoading(true);
-      setError("");
+    setLoading(true);
+    setError("");
 
+    try {
       const response = await fetch("/api/student/profile", {
         method: "GET",
         cache: "no-store",
@@ -81,29 +96,29 @@ export default function StudentProfilePage() {
         throw new Error(data.message || "Unable to load your profile.");
       }
 
-      const apiProfile = data.profile as ApiProfile;
+      const loaded: ApiProfile = data.profile;
 
-      if (!apiProfile) {
-        throw new Error("The server did not return your profile.");
-      }
-
-      const loadedProfile: Profile = {
-        fullName: String(apiProfile.fullName ?? ""),
-        email: String(apiProfile.email ?? ""),
-        phone: String(apiProfile.phone ?? ""),
-        location: String(apiProfile.location ?? ""),
-        college: String(apiProfile.college ?? ""),
-        degree: String(apiProfile.degree ?? ""),
-        branch: String(apiProfile.branch ?? ""),
-        graduationYear: String(apiProfile.graduationYear ?? ""),
-        cgpa: String(apiProfile.cgpa ?? ""),
-        skills: String(apiProfile.skills ?? ""),
-        interests: String(apiProfile.interests ?? ""),
+      const nextProfile: Profile = {
+        fullName: loaded.fullName ?? "",
+        email: loaded.email ?? "",
+        phone: loaded.phone ?? "",
+        location: loaded.location ?? "",
+        college: loaded.college ?? "",
+        degree: loaded.degree ?? "",
+        branch: loaded.branch ?? "",
+        graduationYear: loaded.graduationYear ?? "",
+        cgpa: loaded.cgpa ?? "",
+        skills: loaded.skills ?? "",
+        interests: loaded.interests ?? "",
       };
 
-      setProfile(loadedProfile);
-      setOriginalProfile(loadedProfile);
-      setResumeName(apiProfile.resumeName ?? "");
+      setProfile(nextProfile);
+      setOriginalProfile(nextProfile);
+
+      setResumeName(loaded.resumeName ?? "");
+      setResumeUrl(loaded.resumeUrl ?? "");
+
+      setProfilePictureUrl(loaded.profilePictureUrl ?? "");
     } catch (err) {
       setError(
         err instanceof Error
@@ -120,7 +135,11 @@ export default function StudentProfilePage() {
   }, [loadProfile]);
 
   function updateField(field: keyof Profile, value: string) {
-    setProfile((previous) => ({ ...previous, [field]: value }));
+    setProfile((previous) => ({
+      ...previous,
+      [field]: value,
+    }));
+
     setSaved(false);
     setError("");
   }
@@ -131,19 +150,18 @@ export default function StudentProfilePage() {
       return;
     }
 
-    if (
-      profile.cgpa.trim() !== "" &&
-      (!Number.isFinite(Number(profile.cgpa)) ||
-        Number(profile.cgpa) < 0 ||
-        Number(profile.cgpa) > 10)
-    ) {
-      setError("CGPA must be between 0 and 10.");
-      return;
+    if (profile.cgpa.trim() !== "") {
+      const cgpa = Number(profile.cgpa);
+
+      if (!Number.isFinite(cgpa) || cgpa < 0 || cgpa > 10) {
+        setError("CGPA must be between 0 and 10.");
+        return;
+      }
     }
 
     setSaving(true);
-    setSaved(false);
     setError("");
+    setSaved(false);
 
     try {
       const response = await fetch("/api/student/profile", {
@@ -151,7 +169,18 @@ export default function StudentProfilePage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(profile),
+        body: JSON.stringify({
+          fullName: profile.fullName,
+          phone: profile.phone,
+          location: profile.location,
+          college: profile.college,
+          degree: profile.degree,
+          branch: profile.branch,
+          graduationYear: profile.graduationYear,
+          cgpa: profile.cgpa,
+          skills: profile.skills,
+          interests: profile.interests,
+        }),
       });
 
       const data = await response.json();
@@ -160,25 +189,35 @@ export default function StudentProfilePage() {
         throw new Error(data.message || "Unable to save your profile.");
       }
 
-      const apiProfile = data.profile as ApiProfile;
+      const updated: ApiProfile = data.profile;
 
-      const updatedProfile: Profile = {
-        fullName: String(apiProfile.fullName ?? ""),
-        email: String(apiProfile.email ?? ""),
-        phone: String(apiProfile.phone ?? ""),
-        location: String(apiProfile.location ?? ""),
-        college: String(apiProfile.college ?? ""),
-        degree: String(apiProfile.degree ?? ""),
-        branch: String(apiProfile.branch ?? ""),
-        graduationYear: String(apiProfile.graduationYear ?? ""),
-        cgpa: String(apiProfile.cgpa ?? ""),
-        skills: String(apiProfile.skills ?? ""),
-        interests: String(apiProfile.interests ?? ""),
+      const nextProfile: Profile = {
+        fullName: updated.fullName ?? profile.fullName,
+        email: updated.email ?? profile.email,
+        phone: updated.phone ?? profile.phone,
+        location: updated.location ?? profile.location,
+        college: updated.college ?? profile.college,
+        degree: updated.degree ?? profile.degree,
+        branch: updated.branch ?? profile.branch,
+        graduationYear:
+          updated.graduationYear ?? profile.graduationYear,
+        cgpa: updated.cgpa ?? profile.cgpa,
+        skills: updated.skills ?? profile.skills,
+        interests: updated.interests ?? profile.interests,
       };
 
-      setProfile(updatedProfile);
-      setOriginalProfile(updatedProfile);
-      setResumeName(apiProfile.resumeName ?? "");
+      setProfile(nextProfile);
+      setOriginalProfile(nextProfile);
+
+      setResumeName(updated.resumeName ?? resumeName);
+      setResumeUrl(updated.resumeUrl ?? resumeUrl);
+
+      // Preserve the picture URL even if the profile PUT response
+      // does not include it.
+      if (updated.profilePictureUrl !== undefined) {
+        setProfilePictureUrl(updated.profilePictureUrl ?? "");
+      }
+
       setEditing(false);
       setSaved(true);
     } catch (err) {
@@ -197,9 +236,22 @@ export default function StudentProfilePage() {
     setEditing(false);
     setSaved(false);
     setError("");
+    setResumeError("");
+    setPictureError("");
+    setPictureSuccess("");
+
+    if (resumeInput.current) {
+      resumeInput.current.value = "";
+    }
+
+    if (pictureInput.current) {
+      pictureInput.current.value = "";
+    }
   }
 
-  function handleResume(event: React.ChangeEvent<HTMLInputElement>) {
+  async function handleResume(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
     const file = event.target.files?.[0];
 
     if (!file) return;
@@ -210,30 +262,154 @@ export default function StudentProfilePage() {
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
 
-    if (!allowedTypes.includes(file.type)) {
+    const allowedExtensions = /\.(pdf|doc|docx)$/i;
+
+    if (
+      !allowedTypes.includes(file.type) ||
+      !allowedExtensions.test(file.name)
+    ) {
       setResumeError("Please select a PDF or Word document.");
       event.target.value = "";
       return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setResumeError("Your resume must be smaller than 5 MB.");
+    if (file.size === 0 || file.size > 5 * 1024 * 1024) {
+      setResumeError("Your resume must be greater than 0 and no larger than 5 MB.");
       event.target.value = "";
       return;
     }
 
-    setResumeName(file.name);
-    setResumeError("");
+    try {
+      setResumeError("");
+      setSaved(false);
+
+      const formData = new FormData();
+      formData.append("resume", file);
+
+      const response = await fetch("/api/student/resume", {
+        method: "POST",
+        body: formData,
+      });
+
+      const data = await response.json();
+
+      if (!response.ok) {
+        throw new Error(data.message || "Resume upload failed.");
+      }
+
+      setResumeName(data.resumeName);
+      setResumeUrl(data.resumeUrl);
+
+      setSaved(true);
+    } catch (err) {
+      setResumeError(
+        err instanceof Error
+          ? err.message
+          : "Unable to upload your resume."
+      );
+    } finally {
+      event.target.value = "";
+    }
+  }
+
+  async function handleProfilePicture(
+    event: React.ChangeEvent<HTMLInputElement>
+  ) {
+    const file = event.target.files?.[0];
+
+    if (!file) return;
+
+    setPictureError("");
+    setPictureSuccess("");
     setSaved(false);
+
+    if (!ALLOWED_PICTURE_TYPES.includes(file.type)) {
+      setPictureError("Please select a JPG, PNG, or WebP image.");
+      event.target.value = "";
+      return;
+    }
+
+    if (file.size === 0 || file.size > MAX_PICTURE_SIZE) {
+      setPictureError("Your picture must be greater than 0 and no larger than 2 MB.");
+      event.target.value = "";
+      return;
+    }
+
+    try {
+      setUploadingPicture(true);
+
+      const formData = new FormData();
+      formData.append("profilePicture", file);
+
+      const response = await fetch("/api/student/profile-picture", {
+        method: "POST",
+        body: formData,
+      });
+
+      const responseText = await response.text();
+
+let data: {
+  message?: string;
+  error?: string;
+  profilePictureUrl?: string;
+};
+
+try {
+  data = JSON.parse(responseText);
+} catch {
+  console.error("Invalid API response:", responseText);
+  throw new Error(
+    `Invalid server response (HTTP ${response.status}). Check your terminal.`
+  );
+}
+
+if (!response.ok) {
+  throw new Error(
+    data.error || data.message || "Failed to upload profile picture."
+  );
+}
+
+if (!data.profilePictureUrl) {
+  throw new Error("The server did not return the profile picture URL.");
+}
+
+setProfilePictureUrl(`${data.profilePictureUrl}?t=${Date.now()}`);
+setPictureSuccess("Profile picture uploaded successfully!");
+setPictureError("");
+
+      if (!response.ok) {
+        throw new Error(
+          data.message || "Unable to upload your profile picture."
+        );
+      }
+
+      if (!data.profilePictureUrl) {
+        throw new Error("The server did not return the picture URL.");
+      }
+
+      // The timestamp prevents the browser from showing a cached image.
+      setProfilePictureUrl(
+        `${data.profilePictureUrl}?t=${Date.now()}`
+      );
+
+      setPictureSuccess("Profile picture uploaded successfully!");
+    } catch (err) {
+      setPictureError(
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while uploading your picture."
+      );
+    } finally {
+      setUploadingPicture(false);
+      event.target.value = "";
+    }
   }
 
   if (loading) {
     return (
       <div className="profile-page">
         <div className="profile-container">
-          <p className="py-12 text-center text-gray-500">
-            Loading your profile...
-          </p>
+          <p role="status">Loading your profile...</p>
         </div>
       </div>
     );
@@ -274,8 +450,8 @@ export default function StudentProfilePage() {
             <button
               type="button"
               className="profile-edit-button"
-              disabled={saving}
               onClick={handleSave}
+              disabled={saving}
             >
               <Save size={17} />
               {saving ? "Saving..." : "Save Changes"}
@@ -287,11 +463,7 @@ export default function StudentProfilePage() {
           <div className="profile-resume-error" role="alert">
             {error}
             {!editing && (
-              <button
-                type="button"
-                className="ml-2 underline"
-                onClick={() => void loadProfile()}
-              >
+              <button type="button" onClick={() => void loadProfile()}>
                 Try again
               </button>
             )}
@@ -301,18 +473,77 @@ export default function StudentProfilePage() {
         {saved && (
           <div className="profile-success-message" role="status">
             <CheckCircle2 size={19} />
-            Your profile has been saved to the database successfully.
+            Your changes have been saved successfully.
           </div>
         )}
 
         <div className="profile-layout">
           <aside className="profile-summary-card">
-            <div className="profile-avatar">
-              <UserRound size={43} />
-              {editing && (
-                <span className="profile-avatar-edit">
+            {/* Profile picture */}
+            <div className="flex flex-col items-center">
+              <div className="relative mb-3">
+                <div className="profile-avatar overflow-hidden">
+                  {profilePictureUrl ? (
+                    <img
+                      src={profilePictureUrl}
+                      alt={`${profile.fullName || "Student"} profile`}
+                      className="h-full w-full rounded-full object-cover"
+                    />
+                  ) : (
+                    <UserRound size={43} />
+                  )}
+                </div>
+
+                <button
+                  type="button"
+                  className="profile-avatar-edit cursor-pointer"
+                  style={{
+                    border: "none",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                  }}
+                  onClick={() => pictureInput.current?.click()}
+                  disabled={uploadingPicture}
+                  aria-label="Upload profile picture"
+                  title="Upload profile picture"
+                >
                   <Camera size={15} />
-                </span>
+                </button>
+              </div>
+
+              <input
+                ref={pictureInput}
+                type="file"
+                accept="image/jpeg,image/png,image/webp"
+                onChange={handleProfilePicture}
+                className="hidden"
+                aria-label="Choose profile picture"
+                disabled={uploadingPicture}
+              />
+
+              <p className="mb-2 text-center text-xs text-gray-500">
+                {uploadingPicture
+                  ? "Uploading picture..."
+                  : "JPG, PNG or WebP · Maximum 2 MB"}
+              </p>
+
+              {pictureError && (
+                <p
+                  className="mb-2 text-center text-sm text-red-600"
+                  role="alert"
+                >
+                  {pictureError}
+                </p>
+              )}
+
+              {pictureSuccess && (
+                <p
+                  className="mb-2 text-center text-sm text-green-700"
+                  role="status"
+                >
+                  {pictureSuccess}
+                </p>
               )}
             </div>
 
@@ -339,8 +570,8 @@ export default function StudentProfilePage() {
             <div className="profile-summary-note">
               <strong>Build your career profile</strong>
               <p>
-                Add your education, skills, and resume to prepare for placement
-                opportunities.
+                Add your education, skills, resume, and profile picture to
+                prepare for placement opportunities.
               </p>
             </div>
           </aside>
@@ -363,19 +594,26 @@ export default function StudentProfilePage() {
                   <input
                     value={profile.fullName}
                     disabled={!editing || saving}
-                    onChange={(e) => updateField("fullName", e.target.value)}
+                    onChange={(e) =>
+                      updateField("fullName", e.target.value)
+                    }
                     placeholder="Enter your full name"
+                    maxLength={150}
+                    required
                   />
                 </label>
 
                 <label className="profile-field">
-                  Email Address *
+                  Email Address
                   <input
                     type="email"
                     value={profile.email}
                     disabled
                     readOnly
                   />
+                  <span className="profile-field-hint">
+                    Email changes are managed separately from your profile.
+                  </span>
                 </label>
 
                 <label className="profile-field">
@@ -496,7 +734,7 @@ export default function StudentProfilePage() {
                   <CheckCircle2 size={20} />
                 </div>
                 <div>
-                  <h2>Skills &amp; Interests</h2>
+                  <h2>Skills & Interests</h2>
                   <p>Help recruiters understand your strengths</p>
                 </div>
               </div>
@@ -522,13 +760,16 @@ export default function StudentProfilePage() {
                     rows={3}
                     value={profile.interests}
                     disabled={!editing || saving}
-                    onChange={(e) => updateField("interests", e.target.value)}
+                    onChange={(e) =>
+                      updateField("interests", e.target.value)
+                    }
                     placeholder="e.g. Web Development, Data Science, Software Engineering"
                   />
                 </label>
               </div>
             </section>
 
+            {/* Resume */}
             <section className="profile-section">
               <div className="profile-section-heading">
                 <div className="profile-section-icon">
@@ -548,6 +789,17 @@ export default function StudentProfilePage() {
                 <div className="profile-resume-info">
                   <strong>{resumeName || "Upload your resume"}</strong>
                   <span>PDF or Word document · Maximum 5 MB</span>
+
+                  {resumeUrl && (
+                    <a
+                      href={resumeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-2 inline-block text-sm font-semibold text-green-800 underline"
+                    >
+                      View uploaded resume
+                    </a>
+                  )}
                 </div>
 
                 <input
@@ -572,37 +824,38 @@ export default function StudentProfilePage() {
               </div>
 
               {resumeError && (
-                <p className="profile-resume-error">{resumeError}</p>
-              )}
-
-              {resumeName && (
-                <p className="profile-field-hint">
-                  Resume selection is currently local only; the file has not
-                  been uploaded to the server.
+                <p className="profile-resume-error" role="alert">
+                  {resumeError}
                 </p>
               )}
             </section>
 
             <div className="profile-bottom-actions">
-              <button
-                type="button"
-                className="profile-cancel-button"
-                onClick={editing ? handleCancel : () => history.back()}
-                disabled={saving}
-              >
-                {editing ? "Cancel Changes" : "Back"}
-              </button>
+              <Link href="/student" className="profile-cancel-button">
+                Back to Dashboard
+              </Link>
 
               {editing && (
-                <button
-                  type="button"
-                  className="profile-edit-button"
-                  onClick={handleSave}
-                  disabled={saving}
-                >
-                  <Save size={17} />
-                  {saving ? "Saving..." : "Save Changes"}
-                </button>
+                <>
+                  <button
+                    type="button"
+                    className="profile-cancel-button"
+                    onClick={handleCancel}
+                    disabled={saving || uploadingPicture}
+                  >
+                    Cancel
+                  </button>
+
+                  <button
+                    type="button"
+                    className="profile-edit-button"
+                    onClick={handleSave}
+                    disabled={saving}
+                  >
+                    <Save size={17} />
+                    {saving ? "Saving..." : "Save Changes"}
+                  </button>
+                </>
               )}
             </div>
           </div>
