@@ -1,632 +1,538 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
+import { useAuth } from "@/context/AuthContext";
 import {
-  ArrowLeft,
-  Camera,
-  CheckCircle2,
+  BriefcaseBusiness,
   FileText,
-  GraduationCap,
-  MapPin,
-  Pencil,
-  Save,
-  Upload,
+  CalendarDays,
+  CheckCircle2,
+  Clock3,
+  ArrowRight,
+  Search,
   UserRound,
+  Bell,
+  TrendingUp,
+  AlertCircle,
 } from "lucide-react";
 
-type Profile = {
-  fullName: string;
-  email: string;
-  phone: string;
+type Application = {
+  id: string;
+  job_id: string;
+  student_email: string;
+  application_status: string;
+  applied_at: string;
+  title: string;
+  company: string;
   location: string;
-  college: string;
-  degree: string;
-  branch: string;
-  graduationYear: string;
-  cgpa: string;
-  skills: string;
-  interests: string;
+  job_type: string;
+  work_mode: string;
+  salary?: string;
 };
 
-type ApiProfile = Profile & {
-  resumeName?: string;
-  resumeUrl?: string;
-  profilePictureUrl?: string;
+type StudentProfileResponse = {
+  profilePictureUrl?: string | null;
+  error?: string;
+  message?: string;
 };
 
-const emptyProfile: Profile = {
-  fullName: "",
-  email: "",
-  phone: "",
-  location: "",
-  college: "",
-  degree: "",
-  branch: "",
-  graduationYear: "",
-  cgpa: "",
-  skills: "",
-  interests: "",
+const statusStyles: Record<string, string> = {
+  Applied: "status-applied",
+  "Under Review": "status-review",
+  Shortlisted: "status-shortlisted",
+  Rejected: "status-rejected",
+  Selected: "status-shortlisted",
+  "Interview Scheduled": "status-review",
 };
 
-export default function StudentProfilePage() {
-  const [profile, setProfile] = useState<Profile>(emptyProfile);
-  const [originalProfile, setOriginalProfile] =
-    useState<Profile>(emptyProfile);
-  const [editing, setEditing] = useState(false);
+function formatDate(date: string) {
+  return new Date(date).toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function normalizeStatus(status: string) {
+  return status
+    .split(/[\s_-]+/)
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(" ");
+}
+
+export default function StudentDashboard() {
+  const { currentUser, isLoading: authLoading } = useAuth();
+
+  const [applications, setApplications] = useState<Application[]>([]);
   const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
   const [error, setError] = useState("");
-  const [resumeName, setResumeName] = useState("");
-  const [resumeError, setResumeError] = useState("");
-  const resumeInput = useRef<HTMLInputElement>(null);
 
-  const loadProfile = useCallback(async () => {
-    setLoading(true);
-    setError("");
+  // Profile picture state
+  const [profilePictureUrl, setProfilePictureUrl] = useState("");
 
-    try {
-      const response = await fetch("/api/student/profile", {
-        method: "GET",
-        cache: "no-store",
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        throw new Error(data.message || "Unable to load your profile.");
-      }
-
-      const loaded: ApiProfile = data.profile;
-
-      const nextProfile: Profile = {
-        fullName: loaded.fullName ?? "",
-        email: loaded.email ?? "",
-        phone: loaded.phone ?? "",
-        location: loaded.location ?? "",
-        college: loaded.college ?? "",
-        degree: loaded.degree ?? "",
-        branch: loaded.branch ?? "",
-        graduationYear: loaded.graduationYear ?? "",
-        cgpa: loaded.cgpa ?? "",
-        skills: loaded.skills ?? "",
-        interests: loaded.interests ?? "",
-      };
-
-      setProfile(nextProfile);
-      setOriginalProfile(nextProfile);
-      setResumeName(loaded.resumeName ?? "");
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while loading your profile."
-      );
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
+  // Load the student's profile picture.
   useEffect(() => {
-    void loadProfile();
-  }, [loadProfile]);
+    if (authLoading) return;
 
-  function updateField(field: keyof Profile, value: string) {
-    setProfile((previous) => ({ ...previous, [field]: value }));
-    setSaved(false);
-    setError("");
-  }
-
-  async function handleSave() {
-    if (!profile.fullName.trim()) {
-      setError("Please enter your full name.");
+    if (!currentUser) {
+      setProfilePictureUrl("");
       return;
     }
 
-    if (profile.cgpa.trim() !== "") {
-      const cgpa = Number(profile.cgpa);
+    let cancelled = false;
 
-      if (!Number.isFinite(cgpa) || cgpa < 0 || cgpa > 10) {
-        setError("CGPA must be between 0 and 10.");
-        return;
+    async function loadProfilePicture() {
+      try {
+        const response = await fetch("/api/student/profile", {
+          method: "GET",
+          cache: "no-store",
+        });
+
+        const data: StudentProfileResponse = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error ||
+              data.message ||
+              "Unable to load the student profile."
+          );
+        }
+
+        if (!cancelled) {
+          setProfilePictureUrl(data.profilePictureUrl || "");
+        }
+      } catch (err) {
+        if (!cancelled) {
+          console.error("Profile picture loading error:", err);
+          setProfilePictureUrl("");
+        }
       }
     }
 
-    setSaving(true);
-    setError("");
-    setSaved(false);
+    void loadProfilePicture();
 
-    try {
-      const response = await fetch("/api/student/profile", {
-        method: "PUT",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          fullName: profile.fullName,
-          phone: profile.phone,
-          location: profile.location,
-          college: profile.college,
-          degree: profile.degree,
-          branch: profile.branch,
-          graduationYear: profile.graduationYear,
-          cgpa: profile.cgpa,
-          skills: profile.skills,
-          interests: profile.interests,
-        }),
-      });
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, authLoading]);
 
-      const data = await response.json();
+  // Load the student's applications.
+  useEffect(() => {
+    if (authLoading) return;
 
-      if (!response.ok) {
-        throw new Error(data.message || "Unable to save your profile.");
+    if (!currentUser) {
+      setApplications([]);
+      setLoading(false);
+      setError("");
+      return;
+    }
+
+    const studentEmail = currentUser.email;
+    let cancelled = false;
+
+    async function fetchApplications() {
+      try {
+        setLoading(true);
+        setError("");
+
+        const response = await fetch(
+          `/api/applications?studentEmail=${encodeURIComponent(studentEmail)}`,
+          { cache: "no-store" }
+        );
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.error || data.message || "Unable to load your applications."
+          );
+        }
+
+        if (!Array.isArray(data)) {
+          throw new Error("The server returned an unexpected response.");
+        }
+
+        if (!cancelled) {
+          setApplications(data);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Something went wrong while loading applications."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
-
-      const updated: ApiProfile = data.profile;
-
-      const nextProfile: Profile = {
-        fullName: updated.fullName ?? "",
-        email: updated.email ?? "",
-        phone: updated.phone ?? "",
-        location: updated.location ?? "",
-        college: updated.college ?? "",
-        degree: updated.degree ?? "",
-        branch: updated.branch ?? "",
-        graduationYear: updated.graduationYear ?? "",
-        cgpa: updated.cgpa ?? "",
-        skills: updated.skills ?? "",
-        interests: updated.interests ?? "",
-      };
-
-      setProfile(nextProfile);
-      setOriginalProfile(nextProfile);
-      setResumeName(updated.resumeName ?? "");
-      setEditing(false);
-      setSaved(true);
-    } catch (err) {
-      setError(
-        err instanceof Error
-          ? err.message
-          : "Something went wrong while saving your profile."
-      );
-    } finally {
-      setSaving(false);
-    }
-  }
-
-  function handleCancel() {
-    setProfile(originalProfile);
-    setEditing(false);
-    setSaved(false);
-    setError("");
-    setResumeError("");
-
-    if (resumeInput.current) {
-      resumeInput.current.value = "";
-    }
-  }
-
-  function handleResume(event: React.ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-
-    if (!file) return;
-
-    const allowedTypes = [
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
-
-    const allowedExtensions = /\.(pdf|doc|docx)$/i;
-
-    if (
-      !allowedTypes.includes(file.type) ||
-      !allowedExtensions.test(file.name)
-    ) {
-      setResumeError("Please select a PDF or Word document.");
-      event.target.value = "";
-      return;
     }
 
-    if (file.size > 5 * 1024 * 1024) {
-      setResumeError("Your resume must be smaller than 5 MB.");
-      event.target.value = "";
-      return;
-    }
+    void fetchApplications();
 
-    setResumeError("");
-    setSaved(false);
-    setResumeName(file.name);
-  }
+    return () => {
+      cancelled = true;
+    };
+  }, [currentUser, authLoading]);
 
-  if (loading) {
-    return (
-      <div className="profile-page">
-        <div className="profile-container">
-          <p role="status">Loading your profile...</p>
-        </div>
-      </div>
-    );
-  }
+  const totalApplications = applications.length;
+
+  const underReview = applications.filter(
+    (application) =>
+      normalizeStatus(application.application_status) === "Under Review"
+  ).length;
+
+  const shortlisted = applications.filter(
+    (application) =>
+      normalizeStatus(application.application_status) === "Shortlisted"
+  ).length;
+
+  const upcomingInterviews = applications.filter(
+    (application) =>
+      normalizeStatus(application.application_status) ===
+      "Interview Scheduled"
+  ).length;
+
+  const firstName =
+    currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
 
   return (
-    <div className="profile-page">
-      <div className="profile-container">
-        <Link href="/student" className="profile-back-link">
-          <ArrowLeft size={17} />
-          Back to Dashboard
-        </Link>
-
-        <div className="profile-page-heading">
-          <div>
-            <span className="profile-eyebrow">STUDENT WORKSPACE</span>
-            <h1>My Profile</h1>
-            <p>
-              Manage your personal details, academic background, and career
-              information.
-            </p>
-          </div>
-
-          {!editing ? (
-            <button
-              type="button"
-              className="profile-edit-button"
-              onClick={() => {
-                setEditing(true);
-                setSaved(false);
-                setError("");
-              }}
-            >
-              <Pencil size={17} />
-              Edit Profile
-            </button>
-          ) : (
-            <button
-              type="button"
-              className="profile-edit-button"
-              onClick={handleSave}
-              disabled={saving}
-            >
-              <Save size={17} />
-              {saving ? "Saving..." : "Save Changes"}
-            </button>
-          )}
-        </div>
-
-        {error && (
-          <div className="profile-resume-error" role="alert">
-            {error}
-            {!editing && (
-              <button type="button" onClick={() => void loadProfile()}>
-                Try again
-              </button>
-            )}
-          </div>
-        )}
-
-        {saved && (
-          <div className="profile-success-message" role="status">
-            <CheckCircle2 size={19} />
-            Your profile has been saved to the database successfully.
-          </div>
-        )}
-
-        <div className="profile-layout">
-          <aside className="profile-summary-card">
-            <div className="profile-avatar">
-              <UserRound size={43} />
-              {editing && (
-                <span className="profile-avatar-edit">
-                  <Camera size={15} />
-                </span>
+    <div className="student-dashboard">
+      <div className="student-dashboard-layout">
+        <aside className="student-sidebar">
+          <div className="student-profile">
+            <div className="student-avatar">
+              {profilePictureUrl ? (
+                <img
+                  src={profilePictureUrl}
+                  alt={`${currentUser?.fullName || "Student"} profile picture`}
+                  className="student-avatar-image"
+                />
+              ) : (
+                currentUser?.fullName?.charAt(0).toUpperCase() || "S"
               )}
             </div>
 
-            <h2>{profile.fullName || "Your Name"}</h2>
-            <p>{profile.branch || "Add your course or branch"}</p>
-
-            <div className="profile-summary-divider" />
-
-            <div className="profile-summary-item">
-              <GraduationCap size={18} />
-              <span>{profile.college || "College not added"}</span>
+            <div>
+              <strong>{currentUser?.fullName || "Student"}</strong>
+              <span>Student Account</span>
             </div>
+          </div>
 
-            <div className="profile-summary-item">
-              <MapPin size={18} />
-              <span>{profile.location || "Location not added"}</span>
-            </div>
+          <p className="sidebar-label">WORKSPACE</p>
 
-            <div className="profile-summary-item">
+          <nav className="student-nav">
+            <Link href="/student" className="student-nav-link active">
+              <TrendingUp size={18} />
+              Dashboard
+            </Link>
+
+            <Link href="/jobs" className="student-nav-link">
+              <Search size={18} />
+              Find Jobs
+            </Link>
+
+            <Link href="/companies" className="student-nav-link">
+              <BriefcaseBusiness size={18} />
+              Companies
+            </Link>
+
+            <Link href="/student/profile" className="student-nav-link">
+              <UserRound size={18} />
+              My Profile
+            </Link>
+
+            <Link href="/student/application" className="student-nav-link">
               <FileText size={18} />
-              <span>{resumeName || "No resume uploaded"}</span>
+              My Applications
+            </Link>
+          </nav>
+
+          <div className="student-sidebar-help">
+            <div className="student-help-icon">
+              <BriefcaseBusiness size={21} />
             </div>
 
-            <div className="profile-summary-note">
-              <strong>Build your career profile</strong>
+            <strong>Your next opportunity awaits.</strong>
+
+            <p>
+              Explore new roles and take the next step in your career.
+            </p>
+
+            <Link href="/jobs">
+              Explore jobs <ArrowRight size={15} />
+            </Link>
+          </div>
+        </aside>
+
+        <section className="student-dashboard-main">
+          <div className="student-dashboard-topbar">
+            <div>
+              <span className="student-eyebrow">STUDENT WORKSPACE</span>
+              <h1>Dashboard</h1>
+            </div>
+
+            <button
+              type="button"
+              className="student-notification"
+              aria-label="Notifications"
+              title="Notifications"
+            >
+              <Bell size={19} />
+              <span />
+            </button>
+          </div>
+
+          <div className="student-welcome">
+            <div>
+              <span>YOUR CAREER JOURNEY</span>
+
+              <h2>Welcome back, {firstName}!</h2>
+
               <p>
-                Add your education, skills, and resume to prepare for placement
-                opportunities.
+                Keep track of your applications and discover your next
+                opportunity.
+              </p>
+
+              <Link href="/jobs" className="student-primary-button">
+                Find opportunities <ArrowRight size={17} />
+              </Link>
+            </div>
+
+            <div className="student-welcome-art">
+              <BriefcaseBusiness size={74} strokeWidth={1.2} />
+            </div>
+          </div>
+
+          {/* Dashboard statistics */}
+          <div className="student-stats-grid">
+            <div className="student-stat-card">
+              <div className="student-stat-icon green">
+                <FileText size={21} />
+              </div>
+
+              <span>Total Applications</span>
+              <strong>{loading ? "—" : totalApplications}</strong>
+              <small>Applications submitted</small>
+            </div>
+
+            <div className="student-stat-card">
+              <div className="student-stat-icon orange">
+                <Clock3 size={21} />
+              </div>
+
+              <span>Under Review</span>
+              <strong>{loading ? "—" : underReview}</strong>
+              <small>Awaiting a decision</small>
+            </div>
+
+            <div className="student-stat-card">
+              <div className="student-stat-icon blue">
+                <CheckCircle2 size={21} />
+              </div>
+
+              <span>Shortlisted</span>
+              <strong>{loading ? "—" : shortlisted}</strong>
+              <small>Moving to the next stage</small>
+            </div>
+
+            <div className="student-stat-card">
+              <div className="student-stat-icon purple">
+                <CalendarDays size={21} />
+              </div>
+
+              <span>Upcoming Interviews</span>
+              <strong>{loading ? "—" : upcomingInterviews}</strong>
+              <small>Applications marked for interview</small>
+            </div>
+          </div>
+
+          {/* Recent applications */}
+          <div className="student-content-grid">
+            <section className="student-panel">
+              <div className="student-panel-heading">
+                <div>
+                  <h3>Recent Applications</h3>
+                  <p>Keep an eye on your application progress.</p>
+                </div>
+
+                <Link href="/jobs">
+                  Explore jobs <ArrowRight size={15} />
+                </Link>
+              </div>
+
+              {authLoading || loading ? (
+                <div className="px-5 py-10 text-center text-gray-500">
+                  Loading your applications...
+                </div>
+              ) : error ? (
+                <div className="m-5 flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <AlertCircle size={20} className="mt-0.5 shrink-0" />
+
+                  <div>
+                    <strong>Unable to load applications</strong>
+                    <p className="mt-1">{error}</p>
+
+                    <button
+                      type="button"
+                      className="mt-3 font-semibold underline"
+                      onClick={() => window.location.reload()}
+                    >
+                      Try again
+                    </button>
+                  </div>
+                </div>
+              ) : applications.length === 0 ? (
+                <div className="px-5 py-12 text-center">
+                  <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-[#f8f7f4] text-[#173d2a]">
+                    <BriefcaseBusiness size={26} />
+                  </div>
+
+                  <h4 className="text-lg font-semibold text-[#173d2a]">
+                    No applications yet
+                  </h4>
+
+                  <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-gray-500">
+                    You haven&apos;t applied for any jobs yet. Explore available
+                    opportunities and submit your first application.
+                  </p>
+
+                  <Link
+                    href="/jobs"
+                    className="student-primary-button mt-5 inline-flex"
+                  >
+                    Find jobs <ArrowRight size={17} />
+                  </Link>
+                </div>
+              ) : (
+                <div className="student-application-list">
+                  {applications.slice(0, 5).map((application) => {
+                    const status = normalizeStatus(
+                      application.application_status
+                    );
+
+                    return (
+                      <div
+                        className="student-application"
+                        key={application.id}
+                      >
+                        <div className="student-company-icon">
+                          <BriefcaseBusiness size={20} />
+                        </div>
+
+                        <div className="student-application-info">
+                          <Link
+                            href={`/jobs/${application.job_id}`}
+                            className="font-semibold text-[#173d2a] hover:text-[#d77a5d]"
+                          >
+                            {application.title}
+                          </Link>
+
+                          <span>{application.company}</span>
+
+                          <small>
+                            Applied on {formatDate(application.applied_at)}
+                          </small>
+                        </div>
+
+                        <span
+                          className={`student-status ${
+                            statusStyles[status] || "status-applied"
+                          }`}
+                        >
+                          {status}
+                        </span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
+              <div className="student-panel-footer">
+                <span>
+                  {loading
+                    ? "Loading applications..."
+                    : `Showing ${Math.min(applications.length, 5)} of ${
+                        applications.length
+                      } applications`}
+                </span>
+
+                <Link href="/student/application">
+                  View all applications
+                </Link>
+              </div>
+            </section>
+
+            {/* Profile overview */}
+            <aside className="student-panel student-profile-panel">
+              <div className="student-panel-heading">
+                <div>
+                  <h3>Profile Overview</h3>
+                  <p>Make your profile recruiter-ready.</p>
+                </div>
+              </div>
+
+              <div className="student-profile-progress">
+                <div className="student-progress-ring">
+                  <strong>70%</strong>
+                </div>
+
+                <div>
+                  <strong>Good progress!</strong>
+                  <p>Complete your profile to stand out.</p>
+                </div>
+              </div>
+
+              <div className="student-progress-track">
+                <div />
+              </div>
+
+              <ul className="student-profile-checklist">
+                <li>
+                  <CheckCircle2 size={17} />
+                  Basic information
+                </li>
+
+                <li>
+                  <CheckCircle2 size={17} />
+                  Education details
+                </li>
+
+                <li>
+                  <CheckCircle2 size={17} />
+                  Skills and interests
+                </li>
+
+                <li className="incomplete">
+                  <Clock3 size={17} />
+                  Resume upload
+                </li>
+              </ul>
+
+              <Link
+                href="/student/profile"
+                className="student-outline-button"
+              >
+                Complete profile <ArrowRight size={16} />
+              </Link>
+            </aside>
+          </div>
+
+          <div className="student-dashboard-note">
+            <Bell size={18} />
+
+            <div>
+              <strong>Stay ready for your next opportunity</strong>
+
+              <p>
+                Check job deadlines regularly and keep your profile updated.
               </p>
             </div>
-          </aside>
-
-          <div className="profile-details">
-            <section className="profile-section">
-              <div className="profile-section-heading">
-                <div className="profile-section-icon">
-                  <UserRound size={20} />
-                </div>
-                <div>
-                  <h2>Personal Information</h2>
-                  <p>Your basic contact details</p>
-                </div>
-              </div>
-
-              <div className="profile-fields-grid">
-                <label className="profile-field">
-                  Full Name *
-                  <input
-                    value={profile.fullName}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("fullName", e.target.value)}
-                    placeholder="Enter your full name"
-                    maxLength={150}
-                    required
-                  />
-                </label>
-
-                <label className="profile-field">
-                  Email Address
-                  <input
-                    type="email"
-                    value={profile.email}
-                    disabled
-                    readOnly
-                  />
-                  <span className="profile-field-hint">
-                    Email changes are managed separately from your profile.
-                  </span>
-                </label>
-
-                <label className="profile-field">
-                  Phone Number
-                  <input
-                    type="tel"
-                    value={profile.phone}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("phone", e.target.value)}
-                    placeholder="Enter your phone number"
-                  />
-                </label>
-
-                <label className="profile-field">
-                  Location
-                  <input
-                    value={profile.location}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("location", e.target.value)}
-                    placeholder="City, State"
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="profile-section">
-              <div className="profile-section-heading">
-                <div className="profile-section-icon">
-                  <GraduationCap size={21} />
-                </div>
-                <div>
-                  <h2>Academic Information</h2>
-                  <p>Your education and academic background</p>
-                </div>
-              </div>
-
-              <div className="profile-fields-grid">
-                <label className="profile-field profile-field-full">
-                  College / University
-                  <input
-                    value={profile.college}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("college", e.target.value)}
-                    placeholder="Enter your college name"
-                  />
-                </label>
-
-                <label className="profile-field">
-                  Degree
-                  <select
-                    value={profile.degree}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("degree", e.target.value)}
-                  >
-                    <option value="">Select degree</option>
-                    <option>B.Tech</option>
-                    <option>B.E.</option>
-                    <option>BCA</option>
-                    <option>MCA</option>
-                    <option>M.Tech</option>
-                    <option>B.Sc.</option>
-                    <option>M.Sc.</option>
-                    <option>BBA</option>
-                    <option>MBA</option>
-                    <option>Other</option>
-                  </select>
-                </label>
-
-                <label className="profile-field">
-                  Branch / Specialization
-                  <input
-                    value={profile.branch}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("branch", e.target.value)}
-                    placeholder="e.g. Computer Science"
-                  />
-                </label>
-
-                <label className="profile-field">
-                  Graduation Year
-                  <select
-                    value={profile.graduationYear}
-                    disabled={!editing || saving}
-                    onChange={(e) =>
-                      updateField("graduationYear", e.target.value)
-                    }
-                  >
-                    <option value="">Select year</option>
-                    {Array.from({ length: 8 }, (_, i) => 2024 + i).map(
-                      (year) => (
-                        <option key={year} value={String(year)}>
-                          {year}
-                        </option>
-                      )
-                    )}
-                  </select>
-                </label>
-
-                <label className="profile-field">
-                  CGPA
-                  <input
-                    type="number"
-                    min="0"
-                    max="10"
-                    step="0.01"
-                    value={profile.cgpa}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("cgpa", e.target.value)}
-                    placeholder="e.g. 8.25"
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="profile-section">
-              <div className="profile-section-heading">
-                <div className="profile-section-icon">
-                  <CheckCircle2 size={20} />
-                </div>
-                <div>
-                  <h2>Skills & Interests</h2>
-                  <p>Help recruiters understand your strengths</p>
-                </div>
-              </div>
-
-              <div className="profile-fields-grid">
-                <label className="profile-field profile-field-full">
-                  Technical Skills
-                  <textarea
-                    rows={3}
-                    value={profile.skills}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("skills", e.target.value)}
-                    placeholder="e.g. Python, Java, React, SQL"
-                  />
-                  <span className="profile-field-hint">
-                    Separate skills with commas.
-                  </span>
-                </label>
-
-                <label className="profile-field profile-field-full">
-                  Career Interests
-                  <textarea
-                    rows={3}
-                    value={profile.interests}
-                    disabled={!editing || saving}
-                    onChange={(e) => updateField("interests", e.target.value)}
-                    placeholder="e.g. Web Development, Data Science, Software Engineering"
-                  />
-                </label>
-              </div>
-            </section>
-
-            <section className="profile-section">
-              <div className="profile-section-heading">
-                <div className="profile-section-icon">
-                  <FileText size={20} />
-                </div>
-                <div>
-                  <h2>Resume</h2>
-                  <p>Choose a resume to associate with your profile</p>
-                </div>
-              </div>
-
-              <div className="profile-resume-box">
-                <div className="profile-resume-icon">
-                  <FileText size={27} />
-                </div>
-
-                <div className="profile-resume-info">
-                  <strong>{resumeName || "Upload your resume"}</strong>
-                  <span>PDF or Word document · Maximum 5 MB</span>
-                </div>
-
-                <input
-                  ref={resumeInput}
-                  className="profile-resume-input"
-                  type="file"
-                  accept=".pdf,.doc,.docx"
-                  onChange={handleResume}
-                  disabled={!editing || saving}
-                  aria-label="Choose resume file"
-                />
-
-                <button
-                  type="button"
-                  className="profile-upload-button"
-                  disabled={!editing || saving}
-                  onClick={() => resumeInput.current?.click()}
-                >
-                  <Upload size={16} />
-                  Choose File
-                </button>
-              </div>
-
-              {resumeError && (
-                <p className="profile-resume-error" role="alert">
-                  {resumeError}
-                </p>
-              )}
-
-              {resumeName && (
-                <p className="profile-field-hint">
-                  Resume upload will be connected in the next step. Selecting a
-                  file here does not upload it or save it to the database.
-                </p>
-              )}
-            </section>
-
-            <div className="profile-bottom-actions">
-              <Link href="/student" className="profile-cancel-button">
-                Back to Dashboard
-              </Link>
-
-              {editing && (
-                <>
-                  <button
-                    type="button"
-                    className="profile-cancel-button"
-                    onClick={handleCancel}
-                    disabled={saving}
-                  >
-                    Cancel
-                  </button>
-
-                  <button
-                    type="button"
-                    className="profile-edit-button"
-                    onClick={handleSave}
-                    disabled={saving}
-                  >
-                    <Save size={17} />
-                    {saving ? "Saving..." : "Save Changes"}
-                  </button>
-                </>
-              )}
-            </div>
           </div>
-        </div>
+        </section>
       </div>
     </div>
   );
