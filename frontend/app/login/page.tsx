@@ -11,6 +11,7 @@ import {
   EyeOff,
   ArrowRight,
   BriefcaseBusiness,
+  ShieldCheck,
 } from "lucide-react";
 
 type UserRole = "Student" | "Recruiter" | "Admin";
@@ -18,7 +19,7 @@ type UserRole = "Student" | "Recruiter" | "Admin";
 export default function LoginPage() {
   const router = useRouter();
 
-  const [role, setRole] = useState<"Student" | "Recruiter">("Student");
+  const [role, setRole] = useState<UserRole>("Student");
   const [showPassword, setShowPassword] = useState(false);
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -49,6 +50,7 @@ export default function LoginPage() {
         body: JSON.stringify({
           email: email.trim().toLowerCase(),
           password,
+          role,
         }),
       });
 
@@ -72,8 +74,15 @@ export default function LoginPage() {
         return;
       }
 
-      // The login API determines the user's role from PostgreSQL.
-      // The role selector is only a UI preference, not authorization.
+      // Never trust the selected tab for authorization.
+      // The role returned by the login API must come from the database.
+      if (userRole !== role) {
+        setError(
+          `This account is not registered as ${role}. Please select the correct login tab.`
+        );
+        return;
+      }
+
       router.replace(dashboardRoutes[userRole]);
       router.refresh();
     } catch {
@@ -131,7 +140,7 @@ export default function LoginPage() {
         <div className="auth-form-panel">
           <div className="auth-form-heading">
             <h2>Sign in to your account</h2>
-            <p>Enter your account details below.</p>
+            <p>Select your account type and enter your details.</p>
           </div>
 
           <div className="auth-role-selector" aria-label="Account type">
@@ -139,7 +148,10 @@ export default function LoginPage() {
               type="button"
               className={role === "Student" ? "active" : ""}
               aria-pressed={role === "Student"}
-              onClick={() => setRole("Student")}
+              onClick={() => {
+                setRole("Student");
+                setError("");
+              }}
             >
               <GraduationCap size={17} />
               Student
@@ -149,10 +161,26 @@ export default function LoginPage() {
               type="button"
               className={role === "Recruiter" ? "active" : ""}
               aria-pressed={role === "Recruiter"}
-              onClick={() => setRole("Recruiter")}
+              onClick={() => {
+                setRole("Recruiter");
+                setError("");
+              }}
             >
               <BriefcaseBusiness size={17} />
               Recruiter
+            </button>
+
+            <button
+              type="button"
+              className={role === "Admin" ? "active" : ""}
+              aria-pressed={role === "Admin"}
+              onClick={() => {
+                setRole("Admin");
+                setError("");
+              }}
+            >
+              <ShieldCheck size={17} />
+              Admin
             </button>
           </div>
 
@@ -191,9 +219,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 className="auth-password-toggle"
-                aria-label={
-                  showPassword ? "Hide password" : "Show password"
-                }
+                aria-label={showPassword ? "Hide password" : "Show password"}
                 onClick={() => setShowPassword(!showPassword)}
               >
                 {showPassword ? (
@@ -224,16 +250,23 @@ export default function LoginPage() {
               className="button button-primary auth-submit"
               disabled={isSubmitting}
             >
-              {isSubmitting ? "Signing In..." : "Sign In"}
-
+              {isSubmitting ? "Signing In..." : `Sign In as ${role}`}
               {!isSubmitting && <ArrowRight size={18} />}
             </button>
           </form>
 
-          <p className="auth-switch">
-            Don&apos;t have an account?{" "}
-            <Link href="/register">Create one</Link>
-          </p>
+          {role !== "Admin" && (
+            <p className="auth-switch">
+              Don&apos;t have an account?{" "}
+              <Link href="/register">Create one</Link>
+            </p>
+          )}
+
+          {role === "Admin" && (
+            <p className="auth-switch">
+              Administrator accounts are managed securely by the platform.
+            </p>
+          )}
 
           <p className="auth-demo-note">
             Secure sign-in · Campus Connect
