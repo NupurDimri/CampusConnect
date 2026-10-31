@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Users,
@@ -9,76 +10,23 @@ import {
   ArrowUpRight,
   ArrowRight,
   Clock3,
-  CheckCircle2,
   ShieldCheck,
   TrendingUp,
 } from "lucide-react";
 
-const stats = [
-  {
-    label: "Total Students",
-    value: "1,248",
-    change: "Student accounts",
-    icon: Users,
-    color: "green",
-    href: "/admin/students",
-  },
-  {
-    label: "Recruiters",
-    value: "86",
-    change: "Registered recruiters",
-    icon: Building2,
-    color: "orange",
-    href: "/admin/recruiters",
-  },
-  {
-    label: "Active Jobs",
-    value: "124",
-    change: "Published opportunities",
-    icon: BriefcaseBusiness,
-    color: "blue",
-    href: "/admin/jobs",
-  },
-  {
-    label: "Applications",
-    value: "2,486",
-    change: "Submitted applications",
-    icon: FileText,
-    color: "purple",
-    href: "/admin/applications",
-  },
-];
+type DashboardStats = {
+  students: number;
+  recruiters: number;
+  jobs: number;
+  applications: number;
+};
 
-const recentActivity = [
-  {
-    title: "New student registration",
-    description: "A student account was registered.",
-    time: "Recently",
-    icon: Users,
-    color: "green",
-  },
-  {
-    title: "Recruiter verification",
-    description: "A recruiter account requires review.",
-    time: "Pending review",
-    icon: ShieldCheck,
-    color: "orange",
-  },
-  {
-    title: "New job posting",
-    description: "A placement opportunity was submitted.",
-    time: "Awaiting review",
-    icon: BriefcaseBusiness,
-    color: "blue",
-  },
-  {
-    title: "Application activity",
-    description: "Students are submitting applications.",
-    time: "Recent activity",
-    icon: FileText,
-    color: "purple",
-  },
-];
+type Activity = {
+  title: string;
+  description: string;
+  time: string;
+  type: string;
+};
 
 const quickActions = [
   {
@@ -108,6 +56,93 @@ const quickActions = [
 ];
 
 export default function AdminDashboard() {
+  const [dashboardData, setDashboardData] = useState<DashboardStats>({
+    students: 0,
+    recruiters: 0,
+    jobs: 0,
+    applications: 0,
+  });
+
+  const [recentActivity, setRecentActivity] = useState<Activity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
+
+  useEffect(() => {
+    async function loadDashboard() {
+      try {
+        const response = await fetch("/api/admin/dashboard", {
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (!response.ok) {
+          throw new Error(
+            data.message || "Failed to load dashboard information."
+          );
+        }
+
+        setDashboardData(data.stats);
+        setRecentActivity(data.recentActivity);
+      } catch (error) {
+        console.error("Failed to load admin dashboard:", error);
+
+        setDashboardError(
+          error instanceof Error
+            ? error.message
+            : "Something went wrong while loading the dashboard."
+        );
+      } finally {
+        setLoading(false);
+      }
+    }
+
+    loadDashboard();
+  }, []);
+
+  const stats = [
+    {
+      label: "Total Students",
+      value: loading
+        ? "..."
+        : dashboardData.students.toLocaleString("en-IN"),
+      change: "Student accounts",
+      icon: Users,
+      color: "green",
+      href: "/admin/students",
+    },
+    {
+      label: "Recruiters",
+      value: loading
+        ? "..."
+        : dashboardData.recruiters.toLocaleString("en-IN"),
+      change: "Registered recruiters",
+      icon: Building2,
+      color: "orange",
+      href: "/admin/recruiters",
+    },
+    {
+      label: "Active Jobs",
+      value: loading
+        ? "..."
+        : dashboardData.jobs.toLocaleString("en-IN"),
+      change: "Active opportunities",
+      icon: BriefcaseBusiness,
+      color: "blue",
+      href: "/admin/jobs",
+    },
+    {
+      label: "Applications",
+      value: loading
+        ? "..."
+        : dashboardData.applications.toLocaleString("en-IN"),
+      change: "Submitted applications",
+      icon: FileText,
+      color: "purple",
+      href: "/admin/applications",
+    },
+  ];
+
   return (
     <div className="admin-dashboard">
       <section className="admin-welcome">
@@ -134,10 +169,12 @@ export default function AdminDashboard() {
         <div className="admin-section-heading">
           <div>
             <h2>Platform Overview</h2>
-            <p>A quick overview of your placement platform.</p>
+            <p>A live overview of your placement platform.</p>
           </div>
 
-          <span className="admin-period-label">Dashboard Preview</span>
+          <span className="admin-period-label">
+            {loading ? "Loading..." : "Live Database"}
+          </span>
         </div>
 
         <div className="admin-stats-grid">
@@ -171,6 +208,12 @@ export default function AdminDashboard() {
             );
           })}
         </div>
+
+        {dashboardError && (
+          <p role="alert" style={{ color: "#b91c1c", marginTop: "12px" }}>
+            Unable to load dashboard statistics: {dashboardError}
+          </p>
+        )}
       </section>
 
       <section className="admin-section">
@@ -200,7 +243,10 @@ export default function AdminDashboard() {
                   <p>{action.description}</p>
                 </div>
 
-                <ArrowRight size={19} className="admin-action-arrow" />
+                <ArrowRight
+                  size={19}
+                  className="admin-action-arrow"
+                />
               </Link>
             );
           })}
@@ -211,50 +257,83 @@ export default function AdminDashboard() {
         <div className="admin-section-heading">
           <div>
             <h2>Recent Activity</h2>
-            <p>Example activities for the administration dashboard.</p>
+            <p>Latest activity recorded on the placement platform.</p>
           </div>
 
-          <span className="admin-demo-badge">Sample data</span>
+          <span className="admin-period-label">Live Database</span>
         </div>
 
         <div className="admin-activity-card">
-          {recentActivity.map((activity, index) => {
-            const Icon = activity.icon;
-
-            return (
-              <div className="admin-activity-row" key={activity.title}>
-                <div className={`admin-activity-icon ${activity.color}`}>
-                  <Icon size={19} />
-                </div>
-
-                <div className="admin-activity-details">
-                  <strong>{activity.title}</strong>
-                  <p>{activity.description}</p>
-                </div>
-
-                <div className="admin-activity-time">
-                  <Clock3 size={14} />
-                  <span>{activity.time}</span>
-                </div>
-
-                {index === 0 && (
-                  <CheckCircle2
-                    size={17}
-                    className="admin-activity-check"
-                  />
-                )}
+          {loading ? (
+            <div className="admin-activity-row">
+              <div className="admin-activity-details">
+                <strong>Loading activity...</strong>
+                <p>Fetching the latest database records.</p>
               </div>
-            );
-          })}
+            </div>
+          ) : dashboardError ? (
+            <div className="admin-activity-row">
+              <div className="admin-activity-details">
+                <strong>Unable to load recent activity</strong>
+                <p>{dashboardError}</p>
+              </div>
+            </div>
+          ) : recentActivity.length === 0 ? (
+            <div className="admin-activity-row">
+              <div className="admin-activity-details">
+                <strong>No recent activity</strong>
+                <p>
+                  New student registrations, recruiter registrations, and
+                  applications will appear here.
+                </p>
+              </div>
+            </div>
+          ) : (
+            recentActivity.map((activity, index) => {
+              const Icon =
+                activity.type === "student"
+                  ? Users
+                  : activity.type === "recruiter"
+                    ? Building2
+                    : FileText;
+
+              const color =
+                activity.type === "student"
+                  ? "green"
+                  : activity.type === "recruiter"
+                    ? "orange"
+                    : "purple";
+
+              return (
+                <div
+                  className="admin-activity-row"
+                  key={`${activity.type}-${index}`}
+                >
+                  <div className={`admin-activity-icon ${color}`}>
+                    <Icon size={19} />
+                  </div>
+
+                  <div className="admin-activity-details">
+                    <strong>{activity.title}</strong>
+                    <p>{activity.description}</p>
+                  </div>
+
+                  <div className="admin-activity-time">
+                    <Clock3 size={14} />
+                    <span>{activity.time}</span>
+                  </div>
+                </div>
+              );
+            })
+          )}
         </div>
       </section>
 
       <div className="admin-dashboard-note">
         <ShieldCheck size={18} />
         <p>
-          <strong>Development preview:</strong> The statistics and activity
-          shown here are sample data. We will connect them to PostgreSQL
-          after the interface is complete.
+          <strong>Database connected:</strong> Dashboard statistics and recent
+          activity are fetched from PostgreSQL.
         </p>
       </div>
     </div>
