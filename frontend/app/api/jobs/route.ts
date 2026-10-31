@@ -1,3 +1,4 @@
+
 import { NextResponse } from "next/server";
 import { randomUUID } from "crypto";
 import { pool } from "@/lib/db";
@@ -13,6 +14,13 @@ const VALID_JOB_TYPES = [
 ];
 
 const VALID_WORK_MODES = ["On-site", "Remote", "Hybrid"];
+
+type EligibilityInput = {
+  minCgpa?: unknown;
+  eligibleBranches?: unknown;
+  eligibleGraduationYears?: unknown;
+  requiredSkills?: unknown;
+};
 
 function isValidUUID(value: string) {
   return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
@@ -34,6 +42,115 @@ function forbidden() {
   );
 }
 
+function invalid(message: string) {
+  return NextResponse.json({ error: message }, { status: 400 });
+}
+
+function parseStringArray(
+  value: unknown,
+  fieldName: string
+): string[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (item) => typeof item === "string" && item.trim().length > 0
+    )
+  ) {
+    throw new Error(`${fieldName} must be an array of non-empty strings.`);
+  }
+
+  const normalized = [
+    ...new Set(
+      value.map((item) => (item as string).trim())
+    ),
+  ];
+
+  return normalized.length > 0 ? normalized : null;
+}
+
+function parseIntegerArray(
+  value: unknown,
+  fieldName: string
+): number[] | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+
+  if (
+    !Array.isArray(value) ||
+    !value.every(
+      (item) =>
+        typeof item === "number" &&
+        Number.isInteger(item) &&
+        item >= 2000 &&
+        item <= 2100
+    )
+  ) {
+    throw new Error(
+      `${fieldName} must contain valid graduation years between 2000 and 2100.`
+    );
+  }
+
+  const normalized = [...new Set(value)];
+
+  return normalized.length > 0 ? normalized : null;
+}
+
+function parseMinCgpa(value: unknown): number | null | undefined {
+  if (value === undefined) return undefined;
+  if (value === null || value === "") return null;
+
+  const cgpa =
+    typeof value === "number"
+      ? value
+      : typeof value === "string" && value.trim() !== ""
+        ? Number(value)
+        : NaN;
+
+  if (!Number.isFinite(cgpa) || cgpa < 0 || cgpa > 10) {
+    throw new Error("Minimum CGPA must be a number between 0 and 10.");
+  }
+
+  return cgpa;
+}
+
+function parseEligibility(body: EligibilityInput) {
+  return {
+    minCgpa: parseMinCgpa(body.minCgpa),
+    eligibleBranches: parseStringArray(
+      body.eligibleBranches,
+      "Eligible branches"
+    ),
+    eligibleGraduationYears: parseIntegerArray(
+      body.eligibleGraduationYears,
+      "Eligible graduation years"
+    ),
+    requiredSkills: parseStringArray(
+      body.requiredSkills,
+      "Required skills"
+    ),
+  };
+}
+
+function isValidDeadline(value: unknown): boolean {
+  if (value === undefined || value === null || value === "") {
+    return true;
+  }
+
+  if (typeof value !== "string") return false;
+
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+
+  const date = new Date(`${value}T00:00:00.000Z`);
+
+  return (
+    !Number.isNaN(date.getTime()) &&
+    date.toISOString().slice(0, 10) === value
+  );
+}
+
 // GET: Public job listings.
 export async function GET() {
   try {
@@ -52,6 +169,10 @@ export async function GET() {
         responsibilities,
         eligibility,
         skills,
+        min_cgpa,
+        eligible_branches,
+        eligible_graduation_years,
+        required_skills,
         status,
         applicants,
         created_at
@@ -75,13 +196,8 @@ export async function POST(request: Request) {
   try {
     const user = await getSessionUser();
 
-    if (!user) {
-      return unauthorized();
-    }
-
-    if (user.role !== "Recruiter") {
-      return forbidden();
-    }
+    if (!user) return unauthorized();
+    if (user.role !== "Recruiter") return forbidden();
 
     const body = await request.json();
 
@@ -115,16 +231,26 @@ export async function POST(request: Request) {
       typeof description !== "string" ||
       !description.trim()
     ) {
-      return NextResponse.json(
-        { error: "Please provide valid values for all required fields." },
-        { status: 400 }
-      );
+      return invalid("Please provide valid values for all required fields.");
     }
 
     if (status !== undefined && !VALID_STATUSES.includes(status)) {
-      return NextResponse.json(
-        { error: "Invalid job status." },
-        { status: 400 }
+      return invalid("Invalid job status.");
+    }
+
+    if (!isValidDeadline(deadline)) {
+      return invalid("Please provide a valid application deadline.");
+    }
+
+    let criteria;
+
+    try {
+      criteria = parseEligibility(body);
+    } catch (error) {
+      return invalid(
+        error instanceof Error
+          ? error.message
+          : "Invalid eligibility criteria."
       );
     }
 
@@ -146,11 +272,15 @@ export async function POST(request: Request) {
         responsibilities,
         eligibility,
         skills,
+        min_cgpa,
+        eligible_branches,
+        eligible_graduation_years,
+        required_skills,
         status
       )
       VALUES (
-        $1, $2, $3, $4, $5, $6, $7, $8,
-        $9, $10, $11, $12, $13, $14, $15
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10,
+        $11, $12, $13, $14, $15, $16, $17, $18, $19
       )
       RETURNING *`,
       [
@@ -178,6 +308,10 @@ export async function POST(request: Request) {
         typeof skills === "string" && skills.trim()
           ? skills.trim()
           : null,
+        criteria.minCgpa ?? null,
+        criteria.eligibleBranches ?? null,
+        criteria.eligibleGraduationYears ?? null,
+        criteria.requiredSkills ?? null,
         status || "Active",
       ]
     );
@@ -204,9 +338,7 @@ export async function PATCH(request: Request) {
   try {
     const user = await getSessionUser();
 
-    if (!user) {
-      return unauthorized();
-    }
+    if (!user) return unauthorized();
 
     if (user.role !== "Recruiter" && user.role !== "Admin") {
       return forbidden();
@@ -232,28 +364,23 @@ export async function PATCH(request: Request) {
     } = body;
 
     if (typeof id !== "string" || !isValidUUID(id)) {
-      return NextResponse.json(
-        { error: "A valid job ID is required." },
-        { status: 400 }
-      );
+      return invalid("A valid job ID is required.");
     }
 
-    // A recruiter may update only their own job.
     const existingResult =
       user.role === "Admin"
-        ? await pool.query(
-            `SELECT * FROM jobs WHERE id = $1`,
-            [id]
-          )
+        ? await pool.query("SELECT * FROM jobs WHERE id = $1", [id])
         : await pool.query(
-            `SELECT * FROM jobs
-             WHERE id = $1 AND recruiter_id = $2`,
+            "SELECT * FROM jobs WHERE id = $1 AND recruiter_id = $2",
             [id, user.id]
           );
 
     if (existingResult.rowCount === 0) {
       return NextResponse.json(
-        { error: "Job not found or you do not have permission to update it." },
+        {
+          error:
+            "Job not found or you do not have permission to update it.",
+        },
         { status: 404 }
       );
     }
@@ -296,19 +423,46 @@ export async function PATCH(request: Request) {
       typeof updated.description !== "string" ||
       !updated.description.trim()
     ) {
-      return NextResponse.json(
-        { error: "Please provide valid values for all required fields." },
-        { status: 400 }
-      );
+      return invalid("Please provide valid values for all required fields.");
     }
 
     if (
       typeof updated.status !== "string" ||
       !VALID_STATUSES.includes(updated.status)
     ) {
-      return NextResponse.json(
-        { error: "Invalid job status." },
-        { status: 400 }
+      return invalid("Invalid job status.");
+    }
+
+    if (!isValidDeadline(updated.deadline)) {
+      return invalid("Please provide a valid application deadline.");
+    }
+
+    let criteria;
+
+    try {
+      criteria = parseEligibility({
+        minCgpa:
+          body.minCgpa === undefined
+            ? existing.min_cgpa
+            : body.minCgpa,
+        eligibleBranches:
+          body.eligibleBranches === undefined
+            ? existing.eligible_branches
+            : body.eligibleBranches,
+        eligibleGraduationYears:
+          body.eligibleGraduationYears === undefined
+            ? existing.eligible_graduation_years
+            : body.eligibleGraduationYears,
+        requiredSkills:
+          body.requiredSkills === undefined
+            ? existing.required_skills
+            : body.requiredSkills,
+      });
+    } catch (error) {
+      return invalid(
+        error instanceof Error
+          ? error.message
+          : "Invalid eligibility criteria."
       );
     }
 
@@ -327,8 +481,12 @@ export async function PATCH(request: Request) {
          responsibilities = $10,
          eligibility = $11,
          skills = $12,
-         status = $13
-       WHERE id = $14
+         min_cgpa = $13,
+         eligible_branches = $14,
+         eligible_graduation_years = $15,
+         required_skills = $16,
+         status = $17
+       WHERE id = $18
        RETURNING *`,
       [
         updated.title.trim(),
@@ -339,12 +497,25 @@ export async function PATCH(request: Request) {
         updated.location.trim(),
         updated.jobType,
         updated.workMode,
-        updated.salary || null,
+        typeof updated.salary === "string" && updated.salary.trim()
+          ? updated.salary.trim()
+          : null,
         updated.deadline || null,
         updated.description.trim(),
-        updated.responsibilities || null,
-        updated.eligibility || null,
-        updated.skills || null,
+        typeof updated.responsibilities === "string" &&
+        updated.responsibilities.trim()
+          ? updated.responsibilities.trim()
+          : null,
+        typeof updated.eligibility === "string" && updated.eligibility.trim()
+          ? updated.eligibility.trim()
+          : null,
+        typeof updated.skills === "string" && updated.skills.trim()
+          ? updated.skills.trim()
+          : null,
+        criteria.minCgpa ?? null,
+        criteria.eligibleBranches ?? null,
+        criteria.eligibleGraduationYears ?? null,
+        criteria.requiredSkills ?? null,
         updated.status,
         id,
       ]
@@ -369,9 +540,7 @@ export async function DELETE(request: Request) {
   try {
     const user = await getSessionUser();
 
-    if (!user) {
-      return unauthorized();
-    }
+    if (!user) return unauthorized();
 
     if (user.role !== "Recruiter" && user.role !== "Admin") {
       return forbidden();
@@ -381,18 +550,13 @@ export async function DELETE(request: Request) {
     const id = searchParams.get("id");
 
     if (!id || !isValidUUID(id)) {
-      return NextResponse.json(
-        { error: "A valid job ID is required." },
-        { status: 400 }
-      );
+      return invalid("A valid job ID is required.");
     }
 
     const result =
       user.role === "Admin"
         ? await pool.query(
-            `DELETE FROM jobs
-             WHERE id = $1
-             RETURNING id, title`,
+            `DELETE FROM jobs WHERE id = $1 RETURNING id, title`,
             [id]
           )
         : await pool.query(
@@ -404,7 +568,10 @@ export async function DELETE(request: Request) {
 
     if (result.rowCount === 0) {
       return NextResponse.json(
-        { error: "Job not found or you do not have permission to delete it." },
+        {
+          error:
+            "Job not found or you do not have permission to delete it.",
+        },
         { status: 404 }
       );
     }
