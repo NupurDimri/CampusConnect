@@ -9,6 +9,8 @@ import {
   Clock3,
   ArrowUpRight,
   SlidersHorizontal,
+  CalendarDays,
+  IndianRupee,
 } from "lucide-react";
 
 type Job = {
@@ -66,6 +68,45 @@ function formatPostedDate(date: string): string {
   });
 }
 
+// Format a PostgreSQL DATE without shifting the day due to timezone differences.
+function formatDeadline(deadline: string | null): string {
+  if (!deadline?.trim()) {
+    return "Not specified";
+  }
+
+  const datePart = deadline.trim().slice(0, 10);
+  const [year, month, day] = datePart.split("-").map(Number);
+
+  if (
+    !year ||
+    !month ||
+    !day ||
+    month < 1 ||
+    month > 12 ||
+    day < 1 ||
+    day > 31
+  ) {
+    return "Not specified";
+  }
+
+  const deadlineDate = new Date(year, month - 1, day);
+
+  // Reject invalid dates such as February 31.
+  if (
+    deadlineDate.getFullYear() !== year ||
+    deadlineDate.getMonth() !== month - 1 ||
+    deadlineDate.getDate() !== day
+  ) {
+    return "Not specified";
+  }
+
+  return deadlineDate.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
 export default function JobsPage() {
   const [jobs, setJobs] = useState<Job[]>([]);
   const [search, setSearch] = useState("");
@@ -84,7 +125,10 @@ export default function JobsPage() {
       setError("");
 
       try {
-        const response = await fetch("/api/jobs");
+        const response = await fetch("/api/jobs", {
+          cache: "no-store",
+        });
+
         const result = await response.json();
 
         if (!response.ok) {
@@ -136,10 +180,7 @@ export default function JobsPage() {
       .map((job) => job.department?.trim())
       .filter((department): department is string => Boolean(department));
 
-    return [
-      "All Categories",
-      ...Array.from(new Set(departments)),
-    ];
+    return ["All Categories", ...Array.from(new Set(departments))];
   }, [jobs]);
 
   // Search and filter database records.
@@ -159,8 +200,8 @@ export default function JobsPage() {
 
       const matchesLocation =
         !place ||
-        job.location.toLowerCase().includes(place) ||
-        job.work_mode.toLowerCase().includes(place);
+        (job.location || "").toLowerCase().includes(place) ||
+        (job.work_mode || "").toLowerCase().includes(place);
 
       const matchesType =
         jobType === "All Types" || job.job_type === jobType;
@@ -313,7 +354,6 @@ export default function JobsPage() {
               </p>
             </div>
           ) : error ? (
-            /* API error state */
             <div className="jobs-empty-state" role="alert">
               <BriefcaseBusiness size={32} />
               <h3>Unable to load jobs</h3>
@@ -375,11 +415,25 @@ export default function JobsPage() {
                       </div>
                     )}
 
+                    {/* Salary and application deadline */}
                     <div className="job-card-bottom">
                       <div>
-                        <small>Compensation</small>
+                        <small>
+                          <IndianRupee size={13} />
+                          Compensation
+                        </small>
+
                         <strong>
-                          {job.salary || "Not disclosed"}
+                          {job.salary?.trim() || "Not disclosed"}
+                        </strong>
+
+                        <small className="job-deadline-label">
+                          <CalendarDays size={13} />
+                          Application deadline
+                        </small>
+
+                        <strong className="job-deadline-value">
+                          {formatDeadline(job.deadline)}
                         </strong>
                       </div>
 
