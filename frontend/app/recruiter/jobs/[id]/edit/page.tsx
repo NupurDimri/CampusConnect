@@ -1,4 +1,3 @@
-
 "use client";
 
 import { useEffect, useState } from "react";
@@ -28,6 +27,10 @@ type JobForm = {
   eligibility: string;
   skills: string;
   status: string;
+  minCgpa: string;
+  eligibleBranches: string;
+  eligibleGraduationYears: string;
+  requiredSkills: string;
 };
 
 const initialForm: JobForm = {
@@ -44,12 +47,16 @@ const initialForm: JobForm = {
   eligibility: "",
   skills: "",
   status: "Active",
+  minCgpa: "",
+  eligibleBranches: "",
+  eligibleGraduationYears: "",
+  requiredSkills: "",
 };
 
 export default function EditJobPage() {
-  const params = useParams<{ id: string }>();
-  const router = useRouter();
-  const jobId = params.id;
+  const params = useParams();
+const router = useRouter();
+const jobId = params.id as string;
 
   const [form, setForm] = useState<JobForm>(initialForm);
   const [message, setMessage] = useState("");
@@ -101,6 +108,25 @@ export default function EditJobPage() {
           eligibility: job.eligibility ?? "",
           skills: job.skills ?? "",
           status: job.status ?? "Active",
+
+          minCgpa:
+            job.min_cgpa !== null && job.min_cgpa !== undefined
+              ? String(job.min_cgpa)
+              : "",
+
+          eligibleBranches: Array.isArray(job.eligible_branches)
+            ? job.eligible_branches.join(", ")
+            : "",
+
+          eligibleGraduationYears: Array.isArray(
+            job.eligible_graduation_years
+          )
+            ? job.eligible_graduation_years.join(", ")
+            : "",
+
+          requiredSkills: Array.isArray(job.required_skills)
+            ? job.required_skills.join(", ")
+            : "",
         });
       } catch (error) {
         setMessage(
@@ -141,9 +167,55 @@ export default function EditJobPage() {
     setMessage("");
 
     if (form.deadline && today && form.deadline < today) {
-      setMessage("Please select today or a future application deadline.");
+      setMessage(
+        "Please select today or a future application deadline."
+      );
       return;
     }
+
+    const minCgpa =
+      form.minCgpa.trim() === "" ? null : Number(form.minCgpa);
+
+    if (
+      minCgpa !== null &&
+      (!Number.isFinite(minCgpa) ||
+        minCgpa < 0 ||
+        minCgpa > 10)
+    ) {
+      setMessage("Minimum CGPA must be between 0 and 10.");
+      return;
+    }
+
+    const eligibleBranches = form.eligibleBranches
+      .split(",")
+      .map((branch) => branch.trim())
+      .filter(Boolean);
+
+    const graduationYearValues = form.eligibleGraduationYears
+      .split(",")
+      .map((year) => year.trim())
+      .filter(Boolean);
+
+    const eligibleGraduationYears = graduationYearValues.map(Number);
+
+    if (
+      eligibleGraduationYears.some(
+        (year) =>
+          !Number.isInteger(year) ||
+          year < 2000 ||
+          year > 2100
+      )
+    ) {
+      setMessage(
+        "Please enter valid graduation years between 2000 and 2100."
+      );
+      return;
+    }
+
+    const requiredSkills = form.requiredSkills
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter(Boolean);
 
     setIsSubmitting(true);
 
@@ -156,13 +228,19 @@ export default function EditJobPage() {
         body: JSON.stringify({
           id: jobId,
           ...form,
+          minCgpa,
+          eligibleBranches,
+          eligibleGraduationYears,
+          requiredSkills,
         }),
       });
 
       const result = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Unable to update this job.");
+        throw new Error(
+          result.error || "Unable to update this job."
+        );
       }
 
       setMessage("Job updated successfully!");
@@ -373,6 +451,61 @@ export default function EditJobPage() {
                 required
               />
             </label>
+
+            <div className="post-job-grid">
+              <label>
+                Minimum CGPA
+                <input
+                  type="number"
+                  name="minCgpa"
+                  value={form.minCgpa}
+                  onChange={handleChange}
+                  min="0"
+                  max="10"
+                  step="0.01"
+                  placeholder="e.g. 7.5"
+                />
+                <small>
+                  Leave blank if there is no minimum CGPA.
+                </small>
+              </label>
+
+              <label>
+                Eligible Branches
+                <input
+                  type="text"
+                  name="eligibleBranches"
+                  value={form.eligibleBranches}
+                  onChange={handleChange}
+                  placeholder="CSE, IT, ECE"
+                />
+                <small>Separate branches with commas.</small>
+              </label>
+
+              <label>
+                Eligible Graduation Years
+                <input
+                  type="text"
+                  name="eligibleGraduationYears"
+                  value={form.eligibleGraduationYears}
+                  onChange={handleChange}
+                  placeholder="2026, 2027"
+                />
+                <small>Separate years with commas.</small>
+              </label>
+
+              <label>
+                Required Skills for Eligibility
+                <input
+                  type="text"
+                  name="requiredSkills"
+                  value={form.requiredSkills}
+                  onChange={handleChange}
+                  placeholder="JavaScript, SQL, Python"
+                />
+                <small>Separate skills with commas.</small>
+              </label>
+            </div>
           </section>
 
           <section className="post-job-section">
@@ -385,9 +518,15 @@ export default function EditJobPage() {
                 value={form.status}
                 onChange={handleChange}
               >
-                <option value="Active">Active — visible to students</option>
-                <option value="Draft">Draft — not published</option>
-                <option value="Closed">Closed — applications stopped</option>
+                <option value="Active">
+                  Active — visible to students
+                </option>
+                <option value="Draft">
+                  Draft — not published
+                </option>
+                <option value="Closed">
+                  Closed — applications stopped
+                </option>
               </select>
             </label>
           </section>
@@ -418,7 +557,9 @@ export default function EditJobPage() {
               disabled={isSubmitting}
             >
               <Save size={18} />
-              {isSubmitting ? "Saving Changes..." : "Save Changes"}
+              {isSubmitting
+                ? "Saving Changes..."
+                : "Save Changes"}
             </button>
           </div>
 
