@@ -31,8 +31,25 @@ type Application = {
   salary?: string;
 };
 
+type StudentProfile = {
+  fullName: string;
+  email: string;
+  phone: string;
+  location: string;
+  college: string;
+  degree: string;
+  branch: string;
+  graduationYear: string;
+  cgpa: string;
+  skills: string;
+  interests: string;
+  resumeName: string;
+  resumeUrl: string;
+  profilePictureUrl: string;
+};
+
 type StudentProfileResponse = {
-  profilePictureUrl?: string | null;
+  profile?: Partial<StudentProfile>;
   error?: string;
   message?: string;
 };
@@ -57,8 +74,18 @@ function formatDate(date: string) {
 function normalizeStatus(status: string) {
   return status
     .split(/[\s_-]+/)
-    .map((word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .map(
+      (word) => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase()
+    )
     .join(" ");
+}
+
+function hasValue(value: unknown): boolean {
+  if (Array.isArray(value)) {
+    return value.some((item) => String(item ?? "").trim().length > 0);
+  }
+
+  return String(value ?? "").trim().length > 0;
 }
 
 export default function StudentDashboard() {
@@ -68,21 +95,31 @@ export default function StudentDashboard() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  // Profile picture state
+  const [studentProfile, setStudentProfile] =
+    useState<StudentProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+  const [profileError, setProfileError] = useState("");
+
   const [profilePictureUrl, setProfilePictureUrl] = useState("");
 
-  // Load the student's profile picture.
+  // Load the student's profile from PostgreSQL through the profile API.
   useEffect(() => {
     if (authLoading) return;
 
     if (!currentUser) {
+      setStudentProfile(null);
       setProfilePictureUrl("");
+      setProfileError("");
+      setProfileLoading(false);
       return;
     }
 
     let cancelled = false;
 
-    async function loadProfilePicture() {
+    async function loadStudentProfile() {
+      setProfileLoading(true);
+      setProfileError("");
+
       try {
         const response = await fetch("/api/student/profile", {
           method: "GET",
@@ -93,31 +130,65 @@ export default function StudentDashboard() {
 
         if (!response.ok) {
           throw new Error(
-            data.error ||
-              data.message ||
-              "Unable to load the student profile."
+            data.message || data.error || "Unable to load your profile."
           );
         }
 
+        if (!data.profile) {
+          throw new Error("The server returned no profile data.");
+        }
+
+        const profile: StudentProfile = {
+          fullName: String(data.profile.fullName ?? ""),
+          email: String(data.profile.email ?? ""),
+          phone: String(data.profile.phone ?? ""),
+          location: String(data.profile.location ?? ""),
+          college: String(data.profile.college ?? ""),
+          degree: String(data.profile.degree ?? ""),
+          branch: String(data.profile.branch ?? ""),
+          graduationYear: String(data.profile.graduationYear ?? ""),
+          cgpa: String(data.profile.cgpa ?? ""),
+          skills: Array.isArray(data.profile.skills)
+            ? data.profile.skills.join(", ")
+            : String(data.profile.skills ?? ""),
+          interests: Array.isArray(data.profile.interests)
+            ? data.profile.interests.join(", ")
+            : String(data.profile.interests ?? ""),
+          resumeName: String(data.profile.resumeName ?? ""),
+          resumeUrl: String(data.profile.resumeUrl ?? ""),
+          profilePictureUrl: String(data.profile.profilePictureUrl ?? ""),
+        };
+
         if (!cancelled) {
-          setProfilePictureUrl(data.profilePictureUrl || "");
+          setStudentProfile(profile);
+          setProfilePictureUrl(profile.profilePictureUrl);
         }
       } catch (err) {
         if (!cancelled) {
-          console.error("Profile picture loading error:", err);
+          console.error("Student profile loading error:", err);
+          setStudentProfile(null);
           setProfilePictureUrl("");
+          setProfileError(
+            err instanceof Error
+              ? err.message
+              : "Unable to load your profile."
+          );
+        }
+      } finally {
+        if (!cancelled) {
+          setProfileLoading(false);
         }
       }
     }
 
-    void loadProfilePicture();
+    void loadStudentProfile();
 
     return () => {
       cancelled = true;
     };
   }, [currentUser, authLoading]);
 
-  // Load the student's applications.
+  // Load the logged-in student's applications.
   useEffect(() => {
     if (authLoading) return;
 
@@ -128,7 +199,6 @@ export default function StudentDashboard() {
       return;
     }
 
-    const studentEmail = currentUser.email;
     let cancelled = false;
 
     async function fetchApplications() {
@@ -136,10 +206,9 @@ export default function StudentDashboard() {
         setLoading(true);
         setError("");
 
-        const response = await fetch(
-          `/api/applications?studentEmail=${encodeURIComponent(studentEmail)}`,
-          { cache: "no-store" }
-        );
+        const response = await fetch("/api/applications", {
+          cache: "no-store",
+        });
 
         const data = await response.json();
 
@@ -198,6 +267,64 @@ export default function StudentDashboard() {
 
   const firstName =
     currentUser?.fullName?.trim().split(/\s+/)[0] || "Student";
+
+  // Profile completion: 10 fields, each worth 10%.
+  const profileCompletionFields = [
+    studentProfile?.fullName,
+    studentProfile?.email,
+    studentProfile?.phone,
+    studentProfile?.college,
+    studentProfile?.degree,
+    studentProfile?.branch,
+    studentProfile?.graduationYear,
+    studentProfile?.cgpa,
+    studentProfile?.skills,
+    studentProfile?.resumeUrl,
+  ];
+
+  const completedProfileFields = profileCompletionFields.filter(hasValue).length;
+
+  const profileCompletion = studentProfile
+    ? Math.round(
+        (completedProfileFields / profileCompletionFields.length) * 100
+      )
+    : 0;
+
+  // Checklist categories are complete only when all their fields are filled.
+  const profileChecklist = [
+    {
+      label: "Basic information",
+      complete: Boolean(
+        hasValue(studentProfile?.fullName) &&
+          hasValue(studentProfile?.email) &&
+          hasValue(studentProfile?.phone)
+      ),
+    },
+    {
+      label: "Education details",
+      complete: Boolean(
+        hasValue(studentProfile?.college) &&
+          hasValue(studentProfile?.degree) &&
+          hasValue(studentProfile?.branch) &&
+          hasValue(studentProfile?.graduationYear) &&
+          hasValue(studentProfile?.cgpa)
+      ),
+    },
+    {
+      label: "Skills and interests",
+      complete: Boolean(
+        hasValue(studentProfile?.skills) &&
+          hasValue(studentProfile?.interests)
+      ),
+    },
+    {
+      label: "Resume upload",
+      complete: Boolean(
+        hasValue(studentProfile?.resumeName) &&
+          hasValue(studentProfile?.resumeUrl)
+      ),
+    },
+  ];
 
   return (
     <div className="student-dashboard">
@@ -396,8 +523,8 @@ export default function StudentDashboard() {
                   </h4>
 
                   <p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-gray-500">
-                    You haven&apos;t applied for any jobs yet. Explore available
-                    opportunities and submit your first application.
+                    You haven&apos;t applied for any jobs yet. Explore
+                    available opportunities and submit your first application.
                   </p>
 
                   <Link
@@ -466,7 +593,7 @@ export default function StudentDashboard() {
               </div>
             </section>
 
-            {/* Profile overview */}
+            {/* Dynamic profile overview */}
             <aside className="student-panel student-profile-panel">
               <div className="student-panel-heading">
                 <div>
@@ -475,49 +602,92 @@ export default function StudentDashboard() {
                 </div>
               </div>
 
-              <div className="student-profile-progress">
-                <div className="student-progress-ring">
-                  <strong>70%</strong>
+              {authLoading || profileLoading ? (
+                <div className="px-5 py-8 text-center text-gray-500">
+                  Loading profile...
                 </div>
-
-                <div>
-                  <strong>Good progress!</strong>
-                  <p>Complete your profile to stand out.</p>
+              ) : profileError ? (
+                <div className="m-4 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700">
+                  <strong>Unable to load profile</strong>
+                  <p className="mt-1">{profileError}</p>
+                  <button
+                    type="button"
+                    className="mt-3 font-semibold underline"
+                    onClick={() => window.location.reload()}
+                  >
+                    Try again
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <>
+                  <div className="student-profile-progress">
+                    <div
+                      className="student-progress-ring"
+                      role="img"
+                      aria-label={`Profile ${profileCompletion}% complete`}
+                    >
+                      <strong>{profileCompletion}%</strong>
+                    </div>
 
-              <div className="student-progress-track">
-                <div />
-              </div>
+                    <div>
+                      <strong>
+                        {profileCompletion === 100
+                          ? "Profile complete!"
+                          : profileCompletion >= 70
+                            ? "Good progress!"
+                            : "Keep going!"}
+                      </strong>
 
-              <ul className="student-profile-checklist">
-                <li>
-                  <CheckCircle2 size={17} />
-                  Basic information
-                </li>
+                      <p>
+                        {completedProfileFields} of{" "}
+                        {profileCompletionFields.length} fields completed.
+                      </p>
+                    </div>
+                  </div>
 
-                <li>
-                  <CheckCircle2 size={17} />
-                  Education details
-                </li>
+                  <div
+                    className="student-progress-track"
+                    role="progressbar"
+                    aria-label="Profile completion"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={profileCompletion}
+                  >
+                    <div
+                      style={{
+                        width: `${profileCompletion}%`,
+                        transition: "width 300ms ease",
+                      }}
+                    />
+                  </div>
 
-                <li>
-                  <CheckCircle2 size={17} />
-                  Skills and interests
-                </li>
+                  <ul className="student-profile-checklist">
+                    {profileChecklist.map((item) => (
+                      <li
+                        key={item.label}
+                        className={item.complete ? "" : "incomplete"}
+                      >
+                        {item.complete ? (
+                          <CheckCircle2 size={17} />
+                        ) : (
+                          <Clock3 size={17} />
+                        )}
+                        {item.label}
+                      </li>
+                    ))}
+                  </ul>
 
-                <li className="incomplete">
-                  <Clock3 size={17} />
-                  Resume upload
-                </li>
-              </ul>
-
-              <Link
-                href="/student/profile"
-                className="student-outline-button"
-              >
-                Complete profile <ArrowRight size={16} />
-              </Link>
+                  <Link
+                    href="/student/profile"
+                    className="student-outline-button"
+                  >
+                    {profileCompletion === 100
+                      ? "View profile"
+                      : "Complete profile"}
+                    <ArrowRight size={16} />
+                  </Link>
+                </>
+              )}
             </aside>
           </div>
 
