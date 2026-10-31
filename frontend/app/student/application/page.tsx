@@ -27,6 +27,8 @@ type Application = {
   application_status: string;
   applied_at: string;
   salary?: string;
+  resume_name?: string | null;
+  resume_url?: string | null;
 };
 
 const filters = [
@@ -114,12 +116,9 @@ export default function MyApplicationsPage() {
         setLoading(true);
         setError("");
 
-        const response = await fetch(
-          `/api/applications?studentEmail=${encodeURIComponent(
-            currentUser!.email
-          )}`,
-          { cache: "no-store" }
-        );
+        const response = await fetch("/api/applications", {
+          cache: "no-store",
+        });
 
         const data = await response.json();
 
@@ -164,7 +163,9 @@ export default function MyApplicationsPage() {
     const query = searchTerm.trim().toLowerCase();
 
     return applications.filter((application) => {
-      const status = normalizeStatus(application.application_status || "");
+      const status = normalizeStatus(
+        application.application_status || ""
+      );
 
       const matchesFilter =
         activeFilter === "All" || status === activeFilter;
@@ -188,7 +189,10 @@ export default function MyApplicationsPage() {
         ).length;
 
   const pendingCount = applications.filter((application) => {
-    const status = normalizeStatus(application.application_status || "");
+    const status = normalizeStatus(
+      application.application_status || ""
+    );
+
     return status === "Applied" || status === "Under Review";
   }).length;
 
@@ -212,7 +216,9 @@ export default function MyApplicationsPage() {
 
         <div className="applications-heading">
           <div>
-            <span className="applications-eyebrow">STUDENT WORKSPACE</span>
+            <span className="applications-eyebrow">
+              STUDENT WORKSPACE
+            </span>
 
             <h1>My Applications</h1>
 
@@ -234,7 +240,9 @@ export default function MyApplicationsPage() {
               <FileText size={21} />
             </div>
             <span>Total Applications</span>
-            <strong>{loading || authLoading ? "—" : applications.length}</strong>
+            <strong>
+              {loading || authLoading ? "—" : applications.length}
+            </strong>
             <small>Submitted applications</small>
           </div>
 
@@ -243,7 +251,9 @@ export default function MyApplicationsPage() {
               <Clock3 size={21} />
             </div>
             <span>In Progress</span>
-            <strong>{loading || authLoading ? "—" : pendingCount}</strong>
+            <strong>
+              {loading || authLoading ? "—" : pendingCount}
+            </strong>
             <small>Awaiting a decision</small>
           </div>
 
@@ -252,7 +262,9 @@ export default function MyApplicationsPage() {
               <CheckCircle2 size={21} />
             </div>
             <span>Shortlisted</span>
-            <strong>{loading || authLoading ? "—" : shortlistedCount}</strong>
+            <strong>
+              {loading || authLoading ? "—" : shortlistedCount}
+            </strong>
             <small>Potential next steps</small>
           </div>
 
@@ -261,7 +273,9 @@ export default function MyApplicationsPage() {
               <BriefcaseBusiness size={21} />
             </div>
             <span>Selected</span>
-            <strong>{loading || authLoading ? "—" : selectedCount}</strong>
+            <strong>
+              {loading || authLoading ? "—" : selectedCount}
+            </strong>
             <small>Successful applications</small>
           </div>
         </div>
@@ -332,7 +346,9 @@ export default function MyApplicationsPage() {
                   <Clock3 size={25} />
                 </div>
                 <h3>Loading applications...</h3>
-                <p>Please wait while we retrieve your application history.</p>
+                <p>
+                  Please wait while we retrieve your application history.
+                </p>
               </div>
             ) : error ? (
               <div className="applications-empty-state">
@@ -387,8 +403,16 @@ export default function MyApplicationsPage() {
                       </p>
 
                       <div className="application-record-meta">
-                        <span>{application.location || "Location not specified"}</span>
-                        <span>{application.job_type || "Job type not specified"}</span>
+                        <span>
+                          {application.location ||
+                            "Location not specified"}
+                        </span>
+
+                        <span>
+                          {application.job_type ||
+                            "Job type not specified"}
+                        </span>
+
                         <span>
                           <CalendarDays size={14} />
                           Applied {formatDate(application.applied_at)}
@@ -424,9 +448,26 @@ export default function MyApplicationsPage() {
                       )}
 
                       <div className="application-record-actions">
-                        <Link href={`/jobs/${application.job_id}`}>
-                          View Job Details <ArrowRight size={15} />
+                        <Link
+                          href={`/jobs/${application.job_id}`}
+                          className="inline-flex items-center gap-1"
+                        >
+                          View Job Details
+                          <ArrowRight size={15} />
                         </Link>
+
+                        {application.resume_url && (
+                          <a
+                            href={application.resume_url}
+                            className="inline-flex items-center gap-1"
+                            aria-label={`Download submitted resume ${
+                              application.resume_name || ""
+                            }`}
+                          >
+                            <FileText size={15} />
+                            Download Submitted Resume
+                          </a>
+                        )}
                       </div>
                     </div>
                   </article>
@@ -479,11 +520,14 @@ export default function MyApplicationsPage() {
         <div className="applications-bottom-banner">
           <div>
             <h3>Your next opportunity could be one click away.</h3>
-            <p>Explore available roles and keep building your career.</p>
+            <p>
+              Explore available roles and keep building your career.
+            </p>
           </div>
 
           <Link href="/jobs">
-            Browse Jobs <ArrowRight size={16} />
+            Browse Jobs
+            <ArrowRight size={16} />
           </Link>
         </div>
       </div>
