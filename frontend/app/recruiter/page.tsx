@@ -1,3 +1,4 @@
+
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
@@ -40,52 +41,10 @@ type Applicant = {
   company: string;
 };
 
-const actionBase: React.CSSProperties = {
-  display: "inline-flex",
-  alignItems: "center",
-  justifyContent: "center",
-  gap: "6px",
-  minHeight: "40px",
-  padding: "9px 14px",
-  borderRadius: "10px",
-  border: "1px solid",
-  fontSize: "13px",
-  fontWeight: 600,
-  lineHeight: 1.2,
-  textDecoration: "none",
-  whiteSpace: "nowrap",
-  cursor: "pointer",
-  fontFamily: "inherit",
-  boxSizing: "border-box",
-  transition: "background-color 160ms ease, border-color 160ms ease",
-};
-
-const editButtonStyle: React.CSSProperties = {
-  ...actionBase,
-  color: "#173d2a",
-  backgroundColor: "#ffffff",
-  borderColor: "#d1dfd2",
-};
-
-const statusButtonStyle: React.CSSProperties = {
-  ...actionBase,
-  color: "#173d2a",
-  backgroundColor: "#e7f4e9",
-  borderColor: "#c6e4cc",
-};
-
-const deleteButtonStyle: React.CSSProperties = {
-  ...actionBase,
-  color: "#b42318",
-  backgroundColor: "#fff5f4",
-  borderColor: "#f0c9c6",
-};
-
-const applicantsButtonStyle: React.CSSProperties = {
-  ...actionBase,
-  color: "#ffffff",
-  backgroundColor: "#173d2a",
-  borderColor: "#173d2a",
+type ApplicationResult = {
+  jobId: string;
+  applications: Applicant[];
+  failed: boolean;
 };
 
 export default function RecruiterDashboardPage() {
@@ -97,47 +56,41 @@ export default function RecruiterDashboardPage() {
   const [error, setError] = useState("");
   const [isLoading, setIsLoading] = useState(true);
   const [busyJobId, setBusyJobId] = useState<string | null>(null);
+  const [applicationLoadFailed, setApplicationLoadFailed] = useState(false);
 
   const loadDashboard = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      setError("");
+    setIsLoading(true);
+    setError("");
+    setNotice("");
+    setApplicationLoadFailed(false);
 
-      const jobsResponse = await fetch("/api/jobs", {
+    try {
+      const jobsResponse = await fetch("/api/jobs?mine=true", {
         cache: "no-store",
       });
 
-      const jobsResult = await jobsResponse.json();
+      const jobsData = await jobsResponse.json();
 
       if (!jobsResponse.ok) {
-        throw new Error(jobsResult.error || "Unable to load job listings.");
+        throw new Error(jobsData.error || "Unable to load jobs.");
       }
 
-      if (!Array.isArray(jobsResult.jobs)) {
+      if (!Array.isArray(jobsData.jobs)) {
         throw new Error("Unexpected response from the jobs API.");
       }
 
-      const databaseJobs: Job[] = jobsResult.jobs.map(
-        (job: {
-          id: string;
-          title: string;
-          company: string;
-          department: string | null;
-          location: string;
-          job_type: string;
-          status: string;
-          created_at: string;
-        }) => ({
-          id: job.id,
-          title: job.title,
-          company: job.company,
-          department: job.department || "General",
-          location: job.location,
-          type: job.job_type,
+      const databaseJobs: Job[] = jobsData.jobs.map(
+        (job: Record<string, unknown>) => ({
+          id: String(job.id ?? ""),
+          title: String(job.title ?? ""),
+          company: String(job.company ?? ""),
+          department: String(job.department ?? "General"),
+          location: String(job.location ?? ""),
+          type: String(job.job_type ?? job.jobType ?? ""),
           applicants: 0,
-          status: job.status as Job["status"],
+          status: String(job.status ?? "Draft") as Job["status"],
           posted: job.created_at
-            ? new Date(job.created_at).toLocaleDateString("en-IN", {
+            ? new Date(String(job.created_at)).toLocaleDateString("en-IN", {
                 day: "numeric",
                 month: "short",
                 year: "numeric",
@@ -146,7 +99,7 @@ export default function RecruiterDashboardPage() {
         })
       );
 
-      const applicationResults = await Promise.all(
+      const applicationResults: ApplicationResult[] = await Promise.all(
         databaseJobs.map(async (job) => {
           try {
             const response = await fetch(
@@ -157,92 +110,77 @@ export default function RecruiterDashboardPage() {
             const data = await response.json();
 
             if (!response.ok) {
-              console.error(
-                `Could not load applications for job ${job.id}:`,
-                data
-              );
-
               return {
                 jobId: job.id,
-                applications: [] as Applicant[],
+                applications: [],
                 failed: true,
               };
             }
 
-            const records: unknown[] = Array.isArray(data)
+            const records: Record<string, unknown>[] = Array.isArray(data)
               ? data
-              : data &&
-                  typeof data === "object" &&
-                  "applications" in data &&
-                  Array.isArray(data.applications)
+              : Array.isArray(data.applications)
                 ? data.applications
                 : [];
 
-            const normalized: Applicant[] = records
-              .filter(
-                (record): record is Record<string, unknown> =>
-                  typeof record === "object" && record !== null
-              )
-              .map((record) => ({
-                id: String(record.id ?? ""),
-                job_id: String(record.job_id ?? job.id),
-                student_email: String(record.student_email ?? ""),
-                application_status: String(
-                  record.application_status ?? record.status ?? "Applied"
-                ),
-                applied_at: String(record.applied_at ?? ""),
-                title: String(record.title ?? job.title),
-                company: String(record.company ?? job.company),
-              }));
+            const normalized: Applicant[] = records.map((record) => ({
+              id: String(record.id ?? ""),
+              job_id: String(record.job_id ?? job.id),
+              student_email: String(record.student_email ?? ""),
+              application_status: String(
+                record.application_status ?? record.status ?? "Applied"
+              ),
+              applied_at: String(record.applied_at ?? ""),
+              title: String(record.title ?? job.title),
+              company: String(record.company ?? job.company),
+            }));
 
             return {
               jobId: job.id,
               applications: normalized,
               failed: false,
             };
-          } catch (requestError) {
-            console.error(
-              `Error fetching applications for job ${job.id}:`,
-              requestError
-            );
-
+          } catch {
             return {
               jobId: job.id,
-              applications: [] as Applicant[],
+              applications: [],
               failed: true,
             };
           }
         })
       );
 
+      const failed = applicationResults.some((item) => item.failed);
+
       const applicationMap = new Map(
-        applicationResults.map((result) => [
-          result.jobId,
-          result.applications,
+        applicationResults.map((item) => [
+          item.jobId,
+          item.applications,
         ])
       );
 
-      const jobsWithCounts = databaseJobs.map((job) => ({
-        ...job,
-        applicants: applicationMap.get(job.id)?.length ?? 0,
-      }));
-
-      setJobs(jobsWithCounts);
-      setApplicants(
-        applicationResults.flatMap((result) => result.applications)
+      setJobs(
+        databaseJobs.map((job) => ({
+          ...job,
+          applicants: applicationMap.get(job.id)?.length ?? 0,
+        }))
       );
 
-      if (applicationResults.some((result) => result.failed)) {
+      setApplicants(
+        applicationResults.flatMap((item) => item.applications)
+      );
+
+      setApplicationLoadFailed(failed);
+
+      if (failed) {
         setNotice(
-          "Some application counts could not be loaded. Check the browser console."
+          "Some applicant totals could not be loaded. Please retry."
         );
       }
-    } catch (requestError) {
-      console.error("Error loading recruiter dashboard:", requestError);
-
+    } catch (err) {
       setError(
-        requestError instanceof Error
-          ? requestError.message
+        err instanceof Error
+          ? err.message
           : "Unable to load the recruiter dashboard."
       );
     } finally {
@@ -255,15 +193,9 @@ export default function RecruiterDashboardPage() {
   }, [loadDashboard]);
 
   async function toggleJobStatus(job: Job) {
-    if (busyJobId) return;
+    if (busyJobId || job.status === "Draft") return;
 
-    if (job.status === "Draft") {
-      setNotice("Draft jobs cannot be closed or reopened from this button.");
-      return;
-    }
-
-    const nextStatus: Job["status"] =
-      job.status === "Active" ? "Closed" : "Active";
+    const nextStatus = job.status === "Active" ? "Closed" : "Active";
 
     try {
       setBusyJobId(job.id);
@@ -281,28 +213,26 @@ export default function RecruiterDashboardPage() {
         }),
       });
 
-      const result = await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(
-          result.error || `Could not change the job to ${nextStatus}.`
-        );
+        throw new Error(data.error || "Unable to update job.");
       }
 
-      setJobs((currentJobs) =>
-        currentJobs.map((currentJob) =>
-          currentJob.id === job.id
-            ? { ...currentJob, status: nextStatus }
-            : currentJob
+      setJobs((current) =>
+        current.map((item) =>
+          item.id === job.id
+            ? { ...item, status: nextStatus }
+            : item
         )
       );
 
-      setNotice(`"${job.title}" is now ${nextStatus.toLowerCase()}.`);
+      setNotice(
+        `"${job.title}" is now ${nextStatus.toLowerCase()}.`
+      );
     } catch (err) {
       setError(
-        err instanceof Error
-          ? err.message
-          : "Could not update job status."
+        err instanceof Error ? err.message : "Unable to update job."
       );
     } finally {
       setBusyJobId(null);
@@ -312,11 +242,9 @@ export default function RecruiterDashboardPage() {
   async function deleteJob(job: Job) {
     if (busyJobId) return;
 
-    const confirmed = window.confirm(
-      `Are you sure you want to delete "${job.title}" at ${job.company}?\n\nThis action cannot be undone. Associated applications may also be deleted.`
-    );
-
-    if (!confirmed) return;
+    if (!window.confirm(`Delete "${job.title}" at ${job.company}?`)) {
+      return;
+    }
 
     try {
       setBusyJobId(job.id);
@@ -328,60 +256,143 @@ export default function RecruiterDashboardPage() {
         { method: "DELETE" }
       );
 
-      const result = await response.json();
+      const data = await response.json();
 
       if (!response.ok) {
-        throw new Error(result.error || "Could not delete this job.");
+        throw new Error(data.error || "Unable to delete job.");
       }
 
-      setJobs((currentJobs) =>
-        currentJobs.filter((currentJob) => currentJob.id !== job.id)
+      setJobs((current) =>
+        current.filter((item) => item.id !== job.id)
       );
 
-      setApplicants((currentApplicants) =>
-        currentApplicants.filter((applicant) => applicant.job_id !== job.id)
+      setApplicants((current) =>
+        current.filter((item) => item.job_id !== job.id)
       );
 
-      setNotice(`"${job.title}" was deleted successfully.`);
+      setNotice("Job deleted successfully.");
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Could not delete the job."
+        err instanceof Error ? err.message : "Unable to delete job."
       );
     } finally {
       setBusyJobId(null);
     }
   }
 
-  const visibleJobs = jobs.filter((job) => {
-    const search = searchTerm.toLowerCase();
+  const filteredJobs = jobs.filter((job) => {
+    const term = searchTerm.trim().toLowerCase();
 
     const matchesSearch =
-      job.title.toLowerCase().includes(search) ||
-      job.department.toLowerCase().includes(search) ||
-      job.company.toLowerCase().includes(search) ||
-      job.location.toLowerCase().includes(search);
+      job.title.toLowerCase().includes(term) ||
+      job.company.toLowerCase().includes(term) ||
+      job.department.toLowerCase().includes(term) ||
+      job.location.toLowerCase().includes(term);
 
-    const matchesFilter =
-      activeFilter === "All" || job.status === activeFilter;
-
-    return matchesSearch && matchesFilter;
+    return (
+      matchesSearch &&
+      (activeFilter === "All" || job.status === activeFilter)
+    );
   });
 
-  const activeJobs = jobs.filter((job) => job.status === "Active").length;
-
-  const draftJobs = jobs.filter((job) => job.status === "Draft").length;
-
-  const totalApplicants = applicants.length;
-
-  const shortlistedApplicants = applicants.filter(
-    (applicant) => applicant.application_status === "Shortlisted"
+  const activeJobs = jobs.filter(
+    (job) => job.status === "Active"
   ).length;
 
-  const pendingApplicants = applicants.filter(
+  const draftJobs = jobs.filter(
+    (job) => job.status === "Draft"
+  ).length;
+
+  const shortlisted = applicants.filter(
     (applicant) =>
-      applicant.application_status === "Applied" ||
-      applicant.application_status === "Under Review"
+      applicant.application_status.toLowerCase() === "shortlisted"
   ).length;
+
+  const pending = applicants.filter((applicant) =>
+    ["applied", "under review"].includes(
+      applicant.application_status.toLowerCase()
+    )
+  ).length;
+
+  function JobRow({ job }: { job: Job }) {
+    const busy = busyJobId === job.id;
+
+    return (
+      <article className="recruiter-job-row">
+        <div className="recruiter-job-icon">
+          <BriefcaseBusiness size={22} />
+        </div>
+
+        <div className="recruiter-job-info">
+          <h3>{job.title}</h3>
+          <p>
+            {job.company} · {job.department}
+          </p>
+
+          <div className="recruiter-job-meta">
+            <span>
+              <MapPin size={14} /> {job.location}
+            </span>
+            <span>{job.type}</span>
+            <span>
+              <CalendarDays size={14} /> {job.posted}
+            </span>
+          </div>
+        </div>
+
+        <div className="recruiter-job-applicants">
+          <strong>
+            {applicationLoadFailed ? "—" : job.applicants}
+          </strong>
+          <span>Applicants</span>
+        </div>
+
+        <span
+          className={`recruiter-job-status status-${job.status.toLowerCase()}`}
+        >
+          {job.status}
+        </span>
+
+        <div className="recruiter-job-actions">
+          <Link
+            href={`/recruiter/jobs/${encodeURIComponent(job.id)}/edit`}
+            className="recruiter-add-link"
+          >
+            Edit
+          </Link>
+
+          <button
+            type="button"
+            className="recruiter-add-link"
+            disabled={busy || job.status === "Draft"}
+            onClick={() => void toggleJobStatus(job)}
+          >
+            {busy
+              ? "Saving..."
+              : job.status === "Active"
+                ? "Close"
+                : "Reopen"}
+          </button>
+
+          <button
+            type="button"
+            className="recruiter-add-link"
+            disabled={busy}
+            onClick={() => void deleteJob(job)}
+          >
+            {busy ? "Please wait..." : "Delete"}
+          </button>
+
+          <Link
+            href={`/recruiter/jobs/${encodeURIComponent(job.id)}/applicants`}
+            className="recruiter-primary-button"
+          >
+            <Users size={16} /> Applicants
+          </Link>
+        </div>
+      </article>
+    );
+  }
 
   return (
     <div className="recruiter-page">
@@ -391,7 +402,6 @@ export default function RecruiterDashboardPage() {
             <span className="recruiter-brand-icon">
               <BriefcaseBusiness size={21} />
             </span>
-
             <span>
               <strong>Campus Connect</strong>
               <small>Recruiter workspace</small>
@@ -402,10 +412,9 @@ export default function RecruiterDashboardPage() {
             <div className="recruiter-company-icon">
               <Building2 size={23} />
             </div>
-
             <div>
-              <strong>TechNova</strong>
-              <span>Recruiter account</span>
+              <strong>Recruiter Account</strong>
+              <span>Recruiter workspace</span>
             </div>
           </div>
 
@@ -413,45 +422,49 @@ export default function RecruiterDashboardPage() {
 
           <nav className="recruiter-nav">
             <Link href="/recruiter" className="recruiter-nav-link active">
-              <BriefcaseBusiness size={18} />
-              Dashboard
+              <BriefcaseBusiness size={18} /> Dashboard
             </Link>
 
-            <a href="#recruiter-jobs" className="recruiter-nav-link">
-              <Building2 size={18} />
-              Manage Jobs
-            </a>
+            <Link href="/recruiter/jobs" className="recruiter-nav-link">
+              <Building2 size={18} /> Manage Jobs
+            </Link>
 
-            <a href="#recruiter-applicants" className="recruiter-nav-link">
-              <Users size={18} />
-              Applicants
-            </a>
+            <Link
+              href="/recruiter/applicants"
+              className="recruiter-nav-link"
+            >
+              <Users size={18} /> Applicants
+            </Link>
           </nav>
 
           <div className="recruiter-sidebar-help">
             <strong>Find your next great hire.</strong>
-            <p>Create opportunities and discover talented students.</p>
-
-            <a href="#recruiter-jobs">
+            <p>
+              Create opportunities and discover talented students.
+            </p>
+            <Link href="/recruiter/jobs">
               Manage openings <ArrowRight size={15} />
-            </a>
+            </Link>
           </div>
         </aside>
 
         <main className="recruiter-main">
           <header className="recruiter-topbar">
             <div>
-              <span className="recruiter-eyebrow">RECRUITER WORKSPACE</span>
+              <span className="recruiter-eyebrow">
+                RECRUITER WORKSPACE
+              </span>
               <h1>Recruiter Dashboard</h1>
-              <p>Manage your openings and monitor applicant activity.</p>
+              <p>
+                Manage your openings and monitor applicant activity.
+              </p>
             </div>
 
             <Link
               href="/recruiter/jobs/new"
               className="recruiter-primary-button"
             >
-              <Plus size={18} />
-              Post a Job
+              <Plus size={18} /> Post a Job
             </Link>
           </header>
 
@@ -463,7 +476,6 @@ export default function RecruiterDashboardPage() {
                 type="button"
                 onClick={() => setNotice("")}
                 aria-label="Dismiss notification"
-                style={{ marginLeft: "auto" }}
               >
                 ×
               </button>
@@ -477,7 +489,6 @@ export default function RecruiterDashboardPage() {
               <button
                 type="button"
                 onClick={() => void loadDashboard()}
-                style={{ marginLeft: 12 }}
               >
                 Retry
               </button>
@@ -488,12 +499,10 @@ export default function RecruiterDashboardPage() {
             <div>
               <span>YOUR HIRING WORKSPACE</span>
               <h2>Welcome back, Recruiter!</h2>
-
               <p>
                 Your next great candidate could be among today&apos;s
                 applicants. Review your openings and keep hiring moving.
               </p>
-
               <Link
                 href="/recruiter/jobs/new"
                 className="recruiter-welcome-link"
@@ -531,7 +540,11 @@ export default function RecruiterDashboardPage() {
                 <Users size={21} />
               </div>
               <span>Total Applicants</span>
-              <strong>{isLoading ? "—" : totalApplicants}</strong>
+              <strong>
+                {isLoading || applicationLoadFailed
+                  ? "—"
+                  : applicants.length}
+              </strong>
               <small>Actual applications received</small>
             </div>
 
@@ -545,21 +558,18 @@ export default function RecruiterDashboardPage() {
             </div>
           </section>
 
-          <section className="recruiter-jobs-panel" id="recruiter-jobs">
+          <section className="recruiter-jobs-panel">
             <div className="recruiter-panel-heading">
               <div>
-                <h2>Manage Job Listings</h2>
-                <p>
-                  Review and manage the jobs associated with your account.
-                </p>
+                <h2>Recent Jobs</h2>
+                <p>Your two most recent job listings.</p>
               </div>
 
               <Link
-                href="/recruiter/jobs/new"
+                href="/recruiter/jobs"
                 className="recruiter-add-link"
               >
-                <Plus size={16} />
-                Add Job
+                View All Jobs <ArrowRight size={16} />
               </Link>
             </div>
 
@@ -570,7 +580,9 @@ export default function RecruiterDashboardPage() {
                   type="search"
                   placeholder="Search job title, company, or department..."
                   value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
+                  onChange={(event) =>
+                    setSearchTerm(event.target.value)
+                  }
                   aria-label="Search job listings"
                 />
               </div>
@@ -578,7 +590,9 @@ export default function RecruiterDashboardPage() {
               <select
                 className="recruiter-filter-select"
                 value={activeFilter}
-                onChange={(event) => setActiveFilter(event.target.value)}
+                onChange={(event) =>
+                  setActiveFilter(event.target.value)
+                }
                 aria-label="Filter jobs by status"
               >
                 <option value="All">All statuses</option>
@@ -593,155 +607,32 @@ export default function RecruiterDashboardPage() {
                 <div className="recruiter-empty-state">
                   <Clock3 size={28} />
                   <h3>Loading jobs...</h3>
-                  <p>Fetching jobs and applications from the database.</p>
                 </div>
-              ) : visibleJobs.length > 0 ? (
-                visibleJobs.map((job) => {
-                  const isBusy = busyJobId === job.id;
-
-                  return (
-                    <article className="recruiter-job-row" key={job.id}>
-                      <div className="recruiter-job-icon">
-                        <BriefcaseBusiness size={22} />
-                      </div>
-
-                      <div className="recruiter-job-info">
-                        <h3>{job.title}</h3>
-                        <p>
-                          {job.company}
-                          {job.department ? ` · ${job.department}` : ""}
-                        </p>
-
-                        <div className="recruiter-job-meta">
-                          <span>
-                            <MapPin size={14} />
-                            {job.location}
-                          </span>
-                          <span>{job.type}</span>
-                          <span>
-                            <CalendarDays size={14} />
-                            {job.posted}
-                          </span>
-                        </div>
-                      </div>
-
-                      <div className="recruiter-job-applicants">
-                        <strong>{job.applicants}</strong>
-                        <span>Applicants</span>
-                      </div>
-
-                      <span
-                        className={`recruiter-job-status status-${job.status.toLowerCase()}`}
-                      >
-                        {job.status}
-                      </span>
-
-                      <div
-                        className="recruiter-job-actions"
-                        style={{
-                          display: "flex",
-                          alignItems: "center",
-                          justifyContent: "flex-start",
-                          gap: "8px",
-                          flexWrap: "wrap",
-                          minWidth: 0,
-                          width: "100%",
-                          marginTop: "10px",
-                        }}
-                      >
-                        <Link
-                          href={`/recruiter/jobs/${encodeURIComponent(job.id)}/edit`}
-                          style={editButtonStyle}
-                          title="Edit job"
-                          aria-label={`Edit ${job.title}`}
-                        >
-                          Edit
-                        </Link>
-
-                        <button
-                          type="button"
-                          style={{
-                            ...statusButtonStyle,
-                            ...(isBusy ? { opacity: 0.6, cursor: "wait" } : {}),
-                          }}
-                          onClick={() => void toggleJobStatus(job)}
-                          disabled={Boolean(busyJobId) || job.status === "Draft"}
-                          title={
-                            job.status === "Active"
-                              ? "Close job"
-                              : job.status === "Closed"
-                                ? "Reopen job"
-                                : "Draft jobs cannot be changed here"
-                          }
-                        >
-                          {isBusy
-                            ? "Saving..."
-                            : job.status === "Active"
-                              ? "Close"
-                              : job.status === "Closed"
-                                ? "Reopen"
-                                : "Draft"}
-                        </button>
-
-                        <button
-                          type="button"
-                          style={{
-                            ...deleteButtonStyle,
-                            ...(isBusy ? { opacity: 0.6, cursor: "wait" } : {}),
-                          }}
-                          onClick={() => void deleteJob(job)}
-                          disabled={Boolean(busyJobId)}
-                          title="Delete job"
-                        >
-                          {isBusy ? "Please wait..." : "Delete"}
-                        </button>
-
-                        {/* Correct link to the job-specific applicants page */}
-                        <Link
-                          href={`/recruiter/jobs/${encodeURIComponent(job.id)}/applicants`}
-                          style={applicantsButtonStyle}
-                          aria-label={`View applicants for ${job.title}`}
-                          title="View applicants"
-                        >
-                          <Users size={17} />
-                          Applicants
-                        </Link>
-                      </div>
-                    </article>
-                  );
-                })
+              ) : filteredJobs.length > 0 ? (
+                filteredJobs
+                  .slice(0, 2)
+                  .map((job) => <JobRow key={job.id} job={job} />)
               ) : (
                 <div className="recruiter-empty-state">
                   <BriefcaseBusiness size={28} />
                   <h3>
-                    {jobs.length === 0
-                      ? "No jobs posted yet"
-                      : "No matching jobs"}
+                    {jobs.length
+                      ? "No matching jobs"
+                      : "No jobs posted yet"}
                   </h3>
                   <p>
-                    {jobs.length === 0
-                      ? "Create your first job opening to get started."
-                      : "Try a different search term or status filter."}
+                    {jobs.length
+                      ? "Try another search or status."
+                      : "Create your first job opening to get started."}
                   </p>
 
-                  {jobs.length === 0 ? (
+                  {!jobs.length && (
                     <Link
                       href="/recruiter/jobs/new"
                       className="recruiter-primary-button"
                     >
-                      <Plus size={18} />
-                      Post a Job
+                      <Plus size={18} /> Post a Job
                     </Link>
-                  ) : (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setSearchTerm("");
-                        setActiveFilter("All");
-                      }}
-                    >
-                      Clear filters
-                    </button>
                   )}
                 </div>
               )}
@@ -750,11 +641,11 @@ export default function RecruiterDashboardPage() {
             <div className="recruiter-list-footer">
               {isLoading
                 ? "Loading job listings..."
-                : `Showing ${visibleJobs.length} of ${jobs.length} job listings from the database.`}
+                : `Showing ${Math.min(2, filteredJobs.length)} of ${filteredJobs.length} matching jobs.`}
             </div>
           </section>
 
-          <section className="recruiter-jobs-panel" id="recruiter-applicants">
+          <section className="recruiter-jobs-panel">
             <div className="recruiter-panel-heading">
               <div>
                 <h2>Applicant Management</h2>
@@ -762,17 +653,26 @@ export default function RecruiterDashboardPage() {
                   Review student applications and track hiring progress.
                 </p>
               </div>
+
+              <Link
+                href="/recruiter/applicants"
+                className="recruiter-add-link"
+              >
+                View All Applicants <ArrowRight size={16} />
+              </Link>
             </div>
 
-            {!isLoading && applicants.length > 0 && (
+            {!isLoading && (
               <section className="recruiter-stats">
                 <div className="recruiter-stat-card">
                   <div className="recruiter-stat-icon green">
                     <Users size={21} />
                   </div>
                   <span>Total Applications</span>
-                  <strong>{applicants.length}</strong>
-                  <small>Across the listed jobs</small>
+                  <strong>
+                    {applicationLoadFailed ? "—" : applicants.length}
+                  </strong>
+                  <small>Across your job listings</small>
                 </div>
 
                 <div className="recruiter-stat-card">
@@ -780,7 +680,9 @@ export default function RecruiterDashboardPage() {
                     <Clock3 size={21} />
                   </div>
                   <span>Awaiting Review</span>
-                  <strong>{pendingApplicants}</strong>
+                  <strong>
+                    {applicationLoadFailed ? "—" : pending}
+                  </strong>
                   <small>Applied or under review</small>
                 </div>
 
@@ -789,7 +691,9 @@ export default function RecruiterDashboardPage() {
                     <UserRoundCheck size={21} />
                   </div>
                   <span>Shortlisted</span>
-                  <strong>{shortlistedApplicants}</strong>
+                  <strong>
+                    {applicationLoadFailed ? "—" : shortlisted}
+                  </strong>
                   <small>Potential candidates</small>
                 </div>
               </section>
@@ -799,66 +703,73 @@ export default function RecruiterDashboardPage() {
               <div className="recruiter-empty-state">
                 <Clock3 size={28} />
                 <h3>Loading applicants...</h3>
-                <p>Retrieving applications from PostgreSQL.</p>
               </div>
             ) : jobs.length === 0 ? (
               <div className="recruiter-empty-state">
                 <BriefcaseBusiness size={28} />
                 <h3>No job listings found</h3>
-                <p>Create a job opening before managing applications.</p>
-                <Link
-                  href="/recruiter/jobs/new"
-                  className="recruiter-primary-button"
-                >
-                  <Plus size={18} />
-                  Post a Job
-                </Link>
+                <p>
+                  Create a job opening before managing applications.
+                </p>
               </div>
             ) : (
               <div className="recruiter-job-list">
-                {jobs.map((job) => {
-                  const jobApplicants = applicants.filter(
-                    (applicant) => applicant.job_id === job.id
-                  );
+                {jobs.slice(0, 2).map((job) => (
+                  <article
+                    className="recruiter-job-row"
+                    key={job.id}
+                  >
+                    <div className="recruiter-job-icon">
+                      <Users size={22} />
+                    </div>
 
-                  return (
-                    <article className="recruiter-job-row" key={job.id}>
-                      <div className="recruiter-job-icon">
-                        <Users size={22} />
+                    <div className="recruiter-job-info">
+                      <h3>{job.title}</h3>
+                      <p>{job.company}</p>
+                      <div className="recruiter-job-meta">
+                        <span>
+                          {applicationLoadFailed
+                            ? "Count unavailable"
+                            : `${job.applicants} application(s)`}
+                        </span>
                       </div>
+                    </div>
 
-                      <div className="recruiter-job-info">
-                        <h3>{job.title}</h3>
-                        <p>{job.company}</p>
-                        <div className="recruiter-job-meta">
-                          <span>{jobApplicants.length} application(s)</span>
-                        </div>
-                      </div>
+                    <div className="recruiter-job-applicants">
+                      <strong>
+                        {applicationLoadFailed ? "—" : job.applicants}
+                      </strong>
+                      <span>Applicants</span>
+                    </div>
 
-                      <div className="recruiter-job-applicants">
-                        <strong>{jobApplicants.length}</strong>
-                        <span>Applicants</span>
-                      </div>
-
-                      {/* Correct link to the job-specific applicants page */}
-                      <Link
-                        href={`/recruiter/jobs/${encodeURIComponent(job.id)}/applicants`}
-                        className="recruiter-add-link"
-                      >
-                        <Eye size={16} />
-                        View Applicants
-                      </Link>
-                    </article>
-                  );
-                })}
+                    <Link
+                      href={`/recruiter/jobs/${encodeURIComponent(job.id)}/applicants`}
+                      className="recruiter-add-link"
+                    >
+                      <Eye size={16} /> View Applicants
+                    </Link>
+                  </article>
+                ))}
               </div>
             )}
 
             <div className="recruiter-list-footer">
               {isLoading
                 ? "Loading applications..."
-                : `${totalApplicants} application(s) across ${jobs.length} job listing(s).`}
+                : `${applicationLoadFailed ? "Some counts are unavailable." : `${applicants.length} application(s)`} across ${jobs.length} job listing(s).`}
             </div>
+
+            {applicationLoadFailed && (
+              <div style={{ textAlign: "center", padding: 12 }}>
+                <button
+                  type="button"
+                  className="recruiter-add-link"
+                  onClick={() => void loadDashboard()}
+                >
+                  Retry loading applications
+                </button>
+              </div>
+            )}
           </section>
         </main>
       </div>
