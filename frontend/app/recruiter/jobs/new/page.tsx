@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-
 import {
   ArrowLeft,
   BriefcaseBusiness,
@@ -35,10 +34,13 @@ export default function PostJobPage() {
     eligibility: "",
     skills: "",
     status: "Active",
+
+    minCgpa: "",
+    eligibleBranches: "CSE, IT, ECE",
+    eligibleGraduationYears: "2027",
+    requiredSkills: "",
   });
 
-  // Calculate today's date after the component mounts.
-  // This avoids the unstable Date() prerender error.
   useEffect(() => {
     const now = new Date();
 
@@ -62,6 +64,8 @@ export default function PostJobPage() {
       ...previous,
       [name]: value,
     }));
+
+    setMessage("");
   }
 
   async function handleSubmit(
@@ -83,6 +87,46 @@ export default function PostJobPage() {
       return;
     }
 
+    const minCgpa =
+      form.minCgpa.trim() === "" ? null : Number(form.minCgpa);
+
+    if (
+      minCgpa !== null &&
+      (!Number.isFinite(minCgpa) || minCgpa < 0 || minCgpa > 10)
+    ) {
+      setMessage("Minimum CGPA must be between 0 and 10.");
+      return;
+    }
+
+    const eligibleBranches = form.eligibleBranches
+      .split(",")
+      .map((branch) => branch.trim())
+      .filter(Boolean);
+
+    const eligibleGraduationYears = form.eligibleGraduationYears
+      .split(",")
+      .map((year) => Number(year.trim()));
+
+    if (
+      form.eligibleGraduationYears.trim() !== "" &&
+      eligibleGraduationYears.some(
+        (year) =>
+          !Number.isInteger(year) ||
+          year < 2000 ||
+          year > 2100
+      )
+    ) {
+      setMessage(
+        "Enter valid graduation years separated by commas, for example 2027, 2028."
+      );
+      return;
+    }
+
+    const requiredSkills = form.requiredSkills
+      .split(",")
+      .map((skill) => skill.trim())
+      .filter(Boolean);
+
     setIsSubmitting(true);
 
     try {
@@ -91,7 +135,22 @@ export default function PostJobPage() {
         headers: {
           "Content-Type": "application/json",
         },
-        body: JSON.stringify(form),
+        body: JSON.stringify({
+          ...form,
+          minCgpa,
+          eligibleBranches:
+            form.eligibleBranches.trim() === ""
+              ? null
+              : eligibleBranches,
+          eligibleGraduationYears:
+            form.eligibleGraduationYears.trim() === ""
+              ? null
+              : eligibleGraduationYears,
+          requiredSkills:
+            form.requiredSkills.trim() === ""
+              ? null
+              : requiredSkills,
+        }),
       });
 
       const result = await response.json();
@@ -104,7 +163,6 @@ export default function PostJobPage() {
 
       setMessage("Job saved successfully to PostgreSQL!");
 
-      // Return to the dashboard after displaying the success message.
       window.setTimeout(() => {
         router.push("/recruiter");
         router.refresh();
@@ -251,12 +309,9 @@ export default function PostJobPage() {
                     type="date"
                     name="deadline"
                     value={form.deadline}
-                    onChange={(event) => {
-                    handleChange(event);
-                    setMessage("");
-                  }}
-                  min={today || undefined}
-                  required
+                    onChange={handleChange}
+                    min={today || undefined}
+                    required
                   />
                 </span>
               </label>
@@ -300,14 +355,56 @@ export default function PostJobPage() {
                 name="eligibility"
                 value={form.eligibility}
                 onChange={handleChange}
-                placeholder="e.g. B.Tech/BCA/MCA students, graduation year, minimum CGPA..."
+                placeholder="Describe the degree, academic requirements, and other conditions."
                 rows={3}
                 required
               />
             </label>
 
             <label>
-              Required Skills *
+              Minimum CGPA (out of 10)
+              <input
+                type="number"
+                name="minCgpa"
+                value={form.minCgpa}
+                onChange={handleChange}
+                placeholder="e.g. 7.0"
+                min="0"
+                max="10"
+                step="0.01"
+              />
+            </label>
+
+            <label>
+              Eligible Branches
+              <input
+                name="eligibleBranches"
+                value={form.eligibleBranches}
+                onChange={handleChange}
+                placeholder="CSE, IT, ECE"
+              />
+              <small>
+                Separate branches with commas. Leave empty if all branches
+                are allowed.
+              </small>
+            </label>
+
+            <label>
+              Eligible Graduation Years
+              <input
+                name="eligibleGraduationYears"
+                value={form.eligibleGraduationYears}
+                onChange={handleChange}
+                placeholder="2027, 2028"
+              />
+              <small>
+                Separate years with commas. Leave empty if any graduation
+                year is allowed.
+              </small>
+            </label>
+
+            <label>
+              Existing Skills / Job Skills *
               <textarea
                 name="skills"
                 value={form.skills}
@@ -316,6 +413,20 @@ export default function PostJobPage() {
                 rows={3}
                 required
               />
+            </label>
+
+            <label>
+              Mandatory Skills for Automatic Eligibility
+              <input
+                name="requiredSkills"
+                value={form.requiredSkills}
+                onChange={handleChange}
+                placeholder="e.g. Python, SQL"
+              />
+              <small>
+                Students must have every skill listed here. Leave empty if
+                there are no mandatory skills.
+              </small>
             </label>
           </section>
 
@@ -366,7 +477,8 @@ export default function PostJobPage() {
           </div>
 
           <p className="post-job-demo-note">
-            Job details are submitted to the Campus Connect database.
+            Job details and structured eligibility criteria are submitted to
+            the Campus Connect database.
           </p>
         </form>
       </div>
