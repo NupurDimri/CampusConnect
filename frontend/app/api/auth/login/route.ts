@@ -6,6 +6,10 @@ import { pool } from "@/lib/db";
 const SESSION_COOKIE = "campus_connect_session";
 const SESSION_DURATION = 60 * 60 * 24 * 7; // 7 days
 
+const VALID_ROLES = ["Student", "Recruiter", "Admin"] as const;
+
+type UserRole = (typeof VALID_ROLES)[number];
+
 function getSessionSecret() {
   const secret = process.env.SESSION_SECRET;
 
@@ -28,6 +32,9 @@ export async function POST(request: Request) {
     const password =
       typeof body.password === "string" ? body.password : "";
 
+    const requestedRole =
+      typeof body.role === "string" ? body.role : "";
+
     if (!email || !password) {
       return NextResponse.json(
         { message: "Please enter your email and password." },
@@ -35,18 +42,39 @@ export async function POST(request: Request) {
       );
     }
 
-    // Find the account by email.
+    if (
+      !VALID_ROLES.includes(requestedRole as UserRole)
+    ) {
+      return NextResponse.json(
+        { message: "Please select a valid account type." },
+        { status: 400 }
+      );
+    }
+
+    // Find the account in PostgreSQL.
     const result = await pool.query(
-      `SELECT id, full_name, email, password_hash, role, organization, is_active
+      `SELECT
+         id,
+         full_name,
+         email,
+         password_hash,
+         role,
+         organization,
+         is_active
        FROM users
-       WHERE email = $1
+       WHERE LOWER(TRIM(email)) = $1
        LIMIT 1`,
       [email]
     );
 
     const user = result.rows[0];
 
-    if (!user || !(await bcrypt.compare(password, user.password_hash))) {
+    // Use a generic error for invalid credentials.
+    if (
+      !user ||
+      typeof user.password_hash !== "string" ||
+      !(await bcrypt.compare(password, user.password_hash))
+    ) {
       return NextResponse.json(
         { message: "Invalid email or password." },
         { status: 401 }
@@ -55,28 +83,48 @@ export async function POST(request: Request) {
 
     if (!user.is_active) {
       return NextResponse.json(
-        { message: "Your account has been disabled. Please contact support." },
+        {
+          message:
+            "Your account has been disabled. Please contact support.",
+        },
         { status: 403 }
       );
     }
 
-    if (!["Student", "Recruiter", "Admin"].includes(user.role)) {
+    if (!VALID_ROLES.includes(user.role as UserRole)) {
       return NextResponse.json(
         { message: "This account has an invalid role." },
         { status: 403 }
       );
     }
 
-    // Create a signed session token.
+    // Verify the selected tab BEFORE creating a session.
+    if (user.role !== requestedRole) {
+      return NextResponse.json(
+        {
+          message: `Your account is registered as ${user.role}. Please select the ${user.role} login tab.`,
+        },
+        { status: 403 }
+      );
+    }
+
+    // Create a signed session only after all checks succeed.
     const token = await new SignJWT({
       role: user.role,
       email: user.email,
     })
       .setProtectedHeader({ alg: "HS256" })
-      .setSubject(user.id)
+      .setSubject(String(user.id))
       .setIssuedAt()
       .setExpirationTime(`${SESSION_DURATION}s`)
       .sign(getSessionSecret());
+
+    const redirectTo =
+      user.role === "Student"
+        ? "/student"
+        : user.role === "Recruiter"
+          ? "/recruiter"
+          : "/admin";
 
     const response = NextResponse.json({
       message: "Login successful.",
@@ -87,12 +135,7 @@ export async function POST(request: Request) {
         role: user.role,
         organization: user.organization,
       },
-      redirectTo:
-        user.role === "Student"
-          ? "/student"
-          : user.role === "Recruiter"
-            ? "/recruiter"
-            : "/admin",
+      redirectTo,
     });
 
     response.cookies.set(SESSION_COOKIE, token, {
