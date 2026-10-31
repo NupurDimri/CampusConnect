@@ -1,6 +1,7 @@
+
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, type ReactNode } from "react";
 import { useParams } from "next/navigation";
 import Link from "next/link";
 import {
@@ -10,30 +11,37 @@ import {
   CalendarDays,
   CheckCircle2,
   Clock,
+  FileText,
   GraduationCap,
+  IndianRupee,
   MapPin,
-  Send,
+  Upload,
   Users,
-  AlertCircle,
+  XCircle,
 } from "lucide-react";
 
 type Job = {
   id: string;
   title: string;
   company: string;
-  department?: string;
+  department?: string | null;
   location: string;
   job_type: string;
   work_mode: string;
-  salary?: string;
+  salary?: string | null;
   deadline?: string | null;
   description: string;
-  responsibilities?: string;
-  eligibility?: string;
-  skills?: string;
-  status: string;
+  responsibilities?: string | null;
+  eligibility?: string | null;
+  skills?: string | null;
+  status?: string;
   applicants?: number;
   created_at?: string;
+};
+
+type StudentProfile = {
+  resumeName?: string | null;
+  resumeUrl?: string | null;
 };
 
 type ApplicationResponse = {
@@ -41,36 +49,96 @@ type ApplicationResponse = {
   error?: string;
   application?: {
     id: string;
-    job_id: string;
-    student_email: string;
-    status: string;
   };
 };
 
-// Temporary email for testing.
-// Replace this with the logged-in student's email when authentication is implemented.
-const STUDENT_EMAIL = "student@example.com";
+function formatDeadline(deadline?: string | null): string {
+  if (!deadline?.trim()) {
+    return "Not specified";
+  }
+
+  const datePart = deadline.trim().slice(0, 10);
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(datePart);
+
+  if (!match) {
+    return "Not specified";
+  }
+
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+
+  const date = new Date(year, month - 1, day);
+
+  if (
+    date.getFullYear() !== year ||
+    date.getMonth() !== month - 1 ||
+    date.getDate() !== day
+  ) {
+    return "Not specified";
+  }
+
+  return date.toLocaleDateString("en-IN", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+function JobInfo({
+  icon,
+  label,
+  value,
+}: {
+  icon: ReactNode;
+  label: string;
+  value: string;
+}) {
+  return (
+    <div className="flex items-start gap-3 rounded-xl border border-gray-100 bg-white p-4">
+      <div className="mt-0.5 text-[#d77a5d]">{icon}</div>
+
+      <div className="min-w-0">
+        <p className="text-sm text-gray-500">{label}</p>
+        <p className="mt-1 break-words font-medium text-[#173d2a]">
+          {value}
+        </p>
+      </div>
+    </div>
+  );
+}
 
 export default function JobDetailsClient() {
-  const params = useParams<{ id: string }>();
-  const jobId = params.id;
+  const params = useParams();
+  const jobId = Array.isArray(params.id) ? params.id[0] : params.id;
 
   const [job, setJob] = useState<Job | null>(null);
   const [loading, setLoading] = useState(true);
-  const [pageError, setPageError] = useState("");
+  const [error, setError] = useState("");
 
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [applied, setApplied] = useState(false);
+  const [profile, setProfile] = useState<StudentProfile | null>(null);
+  const [profileLoading, setProfileLoading] = useState(true);
+
+  const [resumeFile, setResumeFile] = useState<File | null>(null);
+  const [applying, setApplying] = useState(false);
   const [applicationMessage, setApplicationMessage] = useState("");
   const [applicationError, setApplicationError] = useState("");
+  const [applicationSuccess, setApplicationSuccess] = useState(false);
+  const [alreadyApplied, setAlreadyApplied] = useState(false);
 
   useEffect(() => {
+    if (!jobId) {
+      setLoading(false);
+      setError("Invalid job ID.");
+      return;
+    }
+
     let cancelled = false;
 
     async function fetchJob() {
       try {
         setLoading(true);
-        setPageError("");
+        setError("");
 
         const response = await fetch("/api/jobs", {
           cache: "no-store",
@@ -79,7 +147,9 @@ export default function JobDetailsClient() {
         const data = await response.json();
 
         if (!response.ok) {
-          throw new Error(data.error || "Unable to load job details.");
+          throw new Error(
+            data.message || data.error || "Unable to load jobs.",
+          );
         }
 
         const jobs: Job[] = Array.isArray(data)
@@ -88,24 +158,23 @@ export default function JobDetailsClient() {
             ? data.jobs
             : [];
 
-        const foundJob = jobs.find((item) => item.id === jobId);
+        const foundJob = jobs.find(
+          (item) => String(item.id) === String(jobId),
+        );
 
         if (!foundJob) {
-          if (!cancelled) {
-            setPageError("The job you're looking for could not be found.");
-          }
-          return;
+          throw new Error("Job not found.");
         }
 
         if (!cancelled) {
           setJob(foundJob);
         }
-      } catch (error) {
+      } catch (err) {
         if (!cancelled) {
-          setPageError(
-            error instanceof Error
-              ? error.message
-              : "Something went wrong while loading the job."
+          setError(
+            err instanceof Error
+              ? err.message
+              : "Something went wrong while loading the job.",
           );
         }
       } finally {
@@ -115,356 +184,511 @@ export default function JobDetailsClient() {
       }
     }
 
-    if (jobId) {
-      fetchJob();
-    }
+    fetchJob();
 
     return () => {
       cancelled = true;
     };
   }, [jobId]);
 
-  async function handleApply() {
-    if (!job) return;
+  useEffect(() => {
+    let cancelled = false;
 
-    setIsSubmitting(true);
+    async function fetchStudentProfile() {
+      try {
+        const response = await fetch("/api/student/profile", {
+          cache: "no-store",
+        });
+
+        const data = await response.json();
+
+        if (response.ok && !cancelled) {
+          setProfile(data.profile ?? null);
+        }
+      } catch {
+        if (!cancelled) {
+          setProfile(null);
+        }
+      } finally {
+        if (!cancelled) {
+          setProfileLoading(false);
+        }
+      }
+    }
+
+    fetchStudentProfile();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function handleApply() {
     setApplicationMessage("");
     setApplicationError("");
 
+    if (alreadyApplied || applicationSuccess) {
+      setApplicationError("You have already applied for this job.");
+      return;
+    }
+
+    if (!job) {
+      setApplicationError("Job details are not available.");
+      return;
+    }
+
+    if (!profile?.resumeUrl && !resumeFile) {
+      setApplicationError(
+        "Please upload a resume or add one to your student profile before applying.",
+      );
+      return;
+    }
+
+    if (resumeFile) {
+      const allowedExtensions = [".pdf", ".doc", ".docx"];
+      const fileName = resumeFile.name.toLowerCase();
+
+      if (
+        !allowedExtensions.some((extension) =>
+          fileName.endsWith(extension),
+        )
+      ) {
+        setApplicationError(
+          "Please upload your resume in PDF, DOC, or DOCX format.",
+        );
+        return;
+      }
+
+      if (resumeFile.size > 5 * 1024 * 1024) {
+        setApplicationError("Your resume must be smaller than 5 MB.");
+        return;
+      }
+    }
+
     try {
+      setApplying(true);
+
+      const formData = new FormData();
+      formData.append("jobId", job.id);
+
+      if (resumeFile) {
+        formData.append("resume", resumeFile);
+      }
+
       const response = await fetch("/api/applications", {
         method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          jobId: job.id,
-          studentEmail: STUDENT_EMAIL,
-        }),
+        body: formData,
       });
 
       const data: ApplicationResponse = await response.json();
 
       if (!response.ok) {
-        if (response.status === 409) {
-          setApplied(true);
-          setApplicationMessage(
-            data.error || "You have already applied for this job."
-          );
-        } else {
-          setApplicationError(
-            data.error || "Unable to submit your application."
-          );
+        const message =
+          data.message ||
+          data.error ||
+          "Unable to submit your application.";
+
+        if (
+          response.status === 409 &&
+          message.toLowerCase().includes("already applied")
+        ) {
+          setAlreadyApplied(true);
+          setApplicationError("You have already applied for this job.");
+          return;
         }
 
-        return;
+        throw new Error(message);
       }
 
-      setApplied(true);
+      setApplicationSuccess(true);
+      setAlreadyApplied(true);
       setApplicationMessage(
-        data.message || "Your application was submitted successfully!"
+        data.message || "Your application has been submitted successfully!",
       );
-    } catch {
+      setResumeFile(null);
+    } catch (err) {
       setApplicationError(
-        "Unable to connect to the server. Please try again."
+        err instanceof Error
+          ? err.message
+          : "Something went wrong while submitting your application.",
       );
     } finally {
-      setIsSubmitting(false);
+      setApplying(false);
     }
   }
 
   if (loading) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center bg-[#f8f7f4] px-6">
-        <p className="text-lg font-medium text-[#173d2a]">
-          Loading job details...
-        </p>
-      </main>
+      <div className="flex min-h-[60vh] items-center justify-center px-4">
+        <p className="text-gray-600">Loading job details...</p>
+      </div>
     );
   }
 
-  if (pageError || !job) {
+  if (error || !job) {
     return (
-      <main className="flex min-h-[60vh] items-center justify-center bg-[#f8f7f4] px-6">
-        <div className="max-w-lg rounded-2xl bg-white p-8 text-center shadow-sm">
-          <AlertCircle className="mx-auto mb-4 h-12 w-12 text-[#d77a5d]" />
+      <section className="min-h-[60vh] px-4 py-16">
+        <div className="mx-auto max-w-3xl rounded-2xl border border-red-100 bg-white p-8 text-center shadow-sm">
+          <XCircle className="mx-auto mb-4 text-red-500" size={42} />
 
-          <h1 className="mb-3 text-2xl font-bold text-[#173d2a]">
-            Job Not Found
+          <h1 className="text-2xl font-bold text-[#173d2a]">
+            Unable to load job
           </h1>
 
-          <p className="mb-6 text-gray-600">
-            {pageError || "This job may have been removed or is unavailable."}
+          <p className="mt-3 text-gray-600">
+            {error || "The requested job could not be found."}
           </p>
 
           <Link
             href="/jobs"
-            className="inline-flex items-center gap-2 rounded-lg bg-[#173d2a] px-5 py-3 font-semibold text-white transition hover:bg-[#24533b]"
+            className="mt-6 inline-flex items-center gap-2 rounded-lg bg-[#173d2a] px-5 py-3 font-medium text-white transition hover:bg-[#24543c]"
           >
             <ArrowLeft size={18} />
             Back to Jobs
           </Link>
         </div>
-      </main>
+      </section>
     );
   }
 
   const isActive = job.status?.toLowerCase() === "active";
 
   return (
-    <main className="min-h-screen bg-[#f8f7f4] px-4 py-10 sm:px-6 lg:px-8">
-      <div className="mx-auto max-w-6xl">
+    <section className="min-h-screen bg-[#f8f7f4] px-4 py-8 sm:px-6 lg:px-8">
+      <div className="mx-auto max-w-7xl">
         <Link
           href="/jobs"
-          className="mb-8 inline-flex items-center gap-2 font-medium text-[#173d2a] transition hover:text-[#d77a5d]"
+          className="mb-6 inline-flex items-center gap-2 text-sm font-medium text-[#173d2a] transition hover:text-[#d77a5d]"
         >
           <ArrowLeft size={18} />
           Back to Jobs
         </Link>
 
-        <div className="grid gap-8 lg:grid-cols-[1fr_320px]">
-          {/* Main job details */}
-          <section className="space-y-6">
-            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-              <div className="mb-5 flex flex-wrap items-center gap-3">
-                <span
-                  className={`rounded-full px-3 py-1 text-sm font-semibold ${
-                    isActive
-                      ? "bg-green-100 text-green-800"
-                      : "bg-gray-100 text-gray-600"
-                  }`}
-                >
-                  {job.status}
-                </span>
-
-                {job.department && (
-                  <span className="rounded-full bg-[#f8f7f4] px-3 py-1 text-sm text-gray-700">
-                    {job.department}
-                  </span>
-                )}
+        {/* Job heading */}
+        <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+          <div className="flex flex-col gap-5 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex items-start gap-4">
+              <div className="flex h-14 w-14 shrink-0 items-center justify-center rounded-xl bg-[#173d2a]/10 text-[#173d2a]">
+                <Building2 size={28} />
               </div>
 
-              <h1 className="mb-3 text-3xl font-bold leading-tight text-[#173d2a] sm:text-4xl">
-                {job.title}
-              </h1>
+              <div>
+                <h1 className="text-2xl font-bold text-[#173d2a] sm:text-3xl">
+                  {job.title}
+                </h1>
 
-              <div className="mb-6 flex flex-wrap items-center gap-x-5 gap-y-3 text-gray-600">
-                <span className="flex items-center gap-2">
-                  <Building2 size={18} className="text-[#d77a5d]" />
+                <p className="mt-2 font-medium text-gray-700">
                   {job.company}
-                </span>
+                </p>
 
-                <span className="flex items-center gap-2">
-                  <MapPin size={18} className="text-[#d77a5d]" />
-                  {job.location}
-                </span>
+                <div className="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-gray-600">
+                  <span className="flex items-center gap-2">
+                    <MapPin size={16} className="text-[#d77a5d]" />
+                    {job.location || "Location not specified"}
+                  </span>
+
+                  {job.department && (
+                    <span className="flex items-center gap-2">
+                      <BriefcaseBusiness
+                        size={16}
+                        className="text-[#d77a5d]"
+                      />
+                      {job.department}
+                    </span>
+                  )}
+                </div>
               </div>
+            </div>
 
-              <div className="grid gap-4 border-t border-gray-100 pt-6 sm:grid-cols-2">
+            <span
+              className={`inline-flex w-fit items-center gap-2 rounded-full px-4 py-2 text-sm font-semibold ${
+                isActive
+                  ? "bg-green-100 text-green-800"
+                  : "bg-gray-100 text-gray-600"
+              }`}
+            >
+              <span
+                className={`h-2 w-2 rounded-full ${
+                  isActive ? "bg-green-600" : "bg-gray-500"
+                }`}
+              />
+              {job.status || "Status unavailable"}
+            </span>
+          </div>
+        </div>
+
+        {/* Main content */}
+        <div className="mt-6 grid grid-cols-1 items-start gap-6 lg:grid-cols-3">
+          <div className="space-y-6 lg:col-span-2">
+            {/* Job information */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-bold text-[#173d2a]">
+                Job Information
+              </h2>
+
+              <div className="mt-5 grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <JobInfo
                   icon={<BriefcaseBusiness size={20} />}
                   label="Job Type"
-                  value={job.job_type}
+                  value={job.job_type || "Not specified"}
                 />
 
                 <JobInfo
                   icon={<Building2 size={20} />}
                   label="Work Mode"
-                  value={job.work_mode}
+                  value={job.work_mode || "Not specified"}
                 />
 
                 <JobInfo
-                  icon={<GraduationCap size={20} />}
+                  icon={<IndianRupee size={20} />}
                   label="Salary"
-                  value={job.salary || "Not specified"}
+                  value={job.salary?.trim() || "Not disclosed"}
                 />
 
                 <JobInfo
                   icon={<CalendarDays size={20} />}
                   label="Application Deadline"
-                  value={
-                    job.deadline
-                      ? new Date(`${job.deadline}T00:00:00`).toLocaleDateString(
-                          "en-IN",
-                          {
-                            day: "numeric",
-                            month: "short",
-                            year: "numeric",
-                          }
-                        )
-                      : "Not specified"
-                  }
+                  value={formatDeadline(job.deadline)}
                 />
               </div>
             </div>
 
-            <DetailSection
-              title="About the Job"
-              content={job.description}
-            />
+            {/* Description */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-bold text-[#173d2a]">
+                About the Job
+              </h2>
 
-            {job.responsibilities && (
-              <DetailSection
-                title="Responsibilities"
-                content={job.responsibilities}
-              />
-            )}
+              <p className="mt-4 whitespace-pre-line leading-7 text-gray-600">
+                {job.description || "No job description provided."}
+              </p>
+            </div>
 
-            {job.eligibility && (
-              <DetailSection
-                title="Eligibility Criteria"
-                content={job.eligibility}
-              />
-            )}
+            {/* Responsibilities */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="flex items-center gap-2 text-xl font-bold text-[#173d2a]">
+                <CheckCircle2 size={22} className="text-[#d77a5d]" />
+                Responsibilities
+              </h2>
 
-            {job.skills && (
-              <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-                <h2 className="mb-4 text-xl font-bold text-[#173d2a]">
-                  Required Skills
-                </h2>
+              <div className="mt-4 whitespace-pre-line leading-7 text-gray-600">
+                {job.responsibilities || "No responsibilities specified."}
+              </div>
+            </div>
 
-                <div className="flex flex-wrap gap-2">
+            {/* Eligibility */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="flex items-center gap-2 text-xl font-bold text-[#173d2a]">
+                <GraduationCap size={22} className="text-[#d77a5d]" />
+                Eligibility Criteria
+              </h2>
+
+              <div className="mt-4 whitespace-pre-line leading-7 text-gray-600">
+                {job.eligibility || "No eligibility criteria specified."}
+              </div>
+            </div>
+
+            {/* Skills */}
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
+              <h2 className="text-xl font-bold text-[#173d2a]">
+                Required Skills
+              </h2>
+
+              {job.skills?.trim() ? (
+                <div className="mt-4 flex flex-wrap gap-2">
                   {job.skills
-                    .split(",")
+                    .split(/[,;\n]/)
                     .map((skill) => skill.trim())
                     .filter(Boolean)
                     .map((skill, index) => (
                       <span
                         key={`${skill}-${index}`}
-                        className="rounded-full bg-[#f8f7f4] px-4 py-2 text-sm font-medium text-[#173d2a]"
+                        className="rounded-full bg-[#173d2a]/10 px-4 py-2 text-sm font-medium text-[#173d2a]"
                       >
                         {skill}
                       </span>
                     ))}
                 </div>
-              </div>
-            )}
-          </section>
+              ) : (
+                <p className="mt-4 text-gray-600">
+                  No specific skills listed.
+                </p>
+              )}
+            </div>
+          </div>
 
-          {/* Application panel */}
-          <aside>
-            <div className="sticky top-24 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
-              <h2 className="mb-2 text-xl font-bold text-[#173d2a]">
-                Interested in this role?
+          {/* Application sidebar */}
+          <aside className="space-y-6 lg:sticky lg:top-24">
+            <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+              <h2 className="text-xl font-bold text-[#173d2a]">
+                Apply for this Job
               </h2>
 
-              <p className="mb-6 text-sm leading-6 text-gray-600">
-                Submit your application to express your interest in this
-                opportunity.
+              <p className="mt-2 text-sm leading-6 text-gray-600">
+                Submit your resume to apply for this opportunity.
               </p>
 
-              {applicationMessage && (
-                <div
-                  role="status"
-                  className="mb-4 flex items-start gap-2 rounded-lg border border-green-200 bg-green-50 p-3 text-sm text-green-800"
+              <div className="mt-5 space-y-3 text-sm text-gray-600">
+                <p className="flex items-center gap-2">
+                  <CalendarDays
+                    size={17}
+                    className="shrink-0 text-[#d77a5d]"
+                  />
+                  <span>Deadline: {formatDeadline(job.deadline)}</span>
+                </p>
+
+                <p className="flex items-center gap-2">
+                  <Users
+                    size={17}
+                    className="shrink-0 text-[#d77a5d]"
+                  />
+                  <span>{job.applicants ?? 0} applicants</span>
+                </p>
+
+                <p className="flex items-center gap-2">
+                  <Clock
+                    size={17}
+                    className="shrink-0 text-[#d77a5d]"
+                  />
+                  <span>{job.work_mode || "Work mode not specified"}</span>
+                </p>
+              </div>
+
+              <div className="mt-6 border-t border-gray-100 pt-5">
+                <label
+                  htmlFor="resume"
+                  className="mb-2 block text-sm font-semibold text-[#173d2a]"
                 >
-                  <CheckCircle2 className="mt-0.5 h-5 w-5 shrink-0" />
-                  <p>{applicationMessage}</p>
-                </div>
-              )}
+                  Your Resume
+                </label>
+
+                {profileLoading ? (
+                  <p className="text-sm text-gray-500">
+                    Checking your profile resume...
+                  </p>
+                ) : profile?.resumeUrl ? (
+                  <div className="rounded-xl border border-green-200 bg-green-50 p-3">
+                    <div className="flex items-start gap-2">
+                      <FileText
+                        size={20}
+                        className="mt-0.5 shrink-0 text-green-700"
+                      />
+
+                      <div className="min-w-0">
+                        <p className="break-words text-sm font-medium text-green-800">
+                          {profile.resumeName || "Resume available in profile"}
+                        </p>
+
+                        <p className="mt-1 text-xs text-green-700">
+                          Your profile resume will be used unless you select
+                          another file below.
+                        </p>
+                      </div>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    No resume found in your profile. Upload one below to apply.
+                  </p>
+                )}
+
+                <label
+                  htmlFor="resume"
+                  className="mt-4 flex cursor-pointer items-center justify-center gap-2 rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-600 transition hover:border-[#173d2a] hover:bg-[#173d2a]/5"
+                >
+                  <Upload size={18} />
+                  <span>
+                    {resumeFile ? resumeFile.name : "Choose a resume file"}
+                  </span>
+                </label>
+
+                <input
+                  id="resume"
+                  type="file"
+                  accept=".pdf,.doc,.docx"
+                  className="sr-only"
+                  onChange={(event) => {
+                    setResumeFile(event.target.files?.[0] ?? null);
+                    setApplicationError("");
+                    setApplicationMessage("");
+                  }}
+                />
+
+                <p className="mt-2 text-xs text-gray-500">
+                  PDF, DOC, or DOCX · Maximum 5 MB
+                </p>
+              </div>
 
               {applicationError && (
                 <div
                   role="alert"
-                  className="mb-4 flex items-start gap-2 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-700"
+                  className="mt-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700"
                 >
-                  <AlertCircle className="mt-0.5 h-5 w-5 shrink-0" />
-                  <p>{applicationError}</p>
+                  {applicationError}
                 </div>
               )}
 
-              {!isActive ? (
-                <div className="rounded-lg bg-gray-100 px-4 py-3 text-center text-sm font-semibold text-gray-600">
-                  Applications are closed
-                </div>
-              ) : (
-                <button
-                  type="button"
-                  onClick={handleApply}
-                  disabled={isSubmitting || applied}
-                  className="flex w-full items-center justify-center gap-2 rounded-lg bg-[#173d2a] px-5 py-3 font-semibold text-white transition hover:bg-[#24533b] disabled:cursor-not-allowed disabled:opacity-60"
+              {applicationMessage && (
+                <div
+                  role="status"
+                  className={`mt-4 rounded-xl border p-3 text-sm ${
+                    applicationSuccess
+                      ? "border-green-200 bg-green-50 text-green-800"
+                      : "border-blue-200 bg-blue-50 text-blue-800"
+                  }`}
                 >
-                  {isSubmitting ? (
-                    <>
-                      <Clock size={18} />
-                      Submitting...
-                    </>
-                  ) : applied ? (
-                    <>
-                      <CheckCircle2 size={18} />
-                      Application Submitted
-                    </>
-                  ) : (
-                    <>
-                      <Send size={18} />
-                      Apply Now
-                    </>
-                  )}
-                </button>
+                  {applicationMessage}
+                </div>
               )}
 
-              <div className="mt-6 space-y-3 border-t border-gray-100 pt-5 text-sm text-gray-600">
-                <p className="flex items-center gap-2">
-                  <Users size={17} className="text-[#d77a5d]" />
-                  {job.applicants ?? 0} applicants
-                </p>
+              <button
+                type="button"
+                onClick={handleApply}
+                disabled={
+                  applying ||
+                  !isActive ||
+                  applicationSuccess ||
+                  alreadyApplied
+                }
+                className="mt-5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#173d2a] px-5 py-3 font-semibold text-white transition hover:bg-[#24543c] disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {applying ? (
+                  <>
+                    <span className="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                    Submitting...
+                  </>
+                ) : alreadyApplied || applicationSuccess ? (
+                  <>
+                    <CheckCircle2 size={18} />
+                    Already Applied
+                  </>
+                ) : !isActive ? (
+                  "Applications Closed"
+                ) : (
+                  "Apply Now"
+                )}
+              </button>
 
-                <p className="flex items-center gap-2">
-                  <CalendarDays size={17} className="text-[#d77a5d]" />
-                  {job.deadline
-                    ? `Deadline: ${new Date(
-                        `${job.deadline}T00:00:00`
-                      ).toLocaleDateString("en-IN")}`
-                    : "No deadline specified"}
+              {alreadyApplied && (
+                <p className="mt-3 text-center text-sm text-green-700">
+                  You have already applied for this job.
                 </p>
-              </div>
+              )}
 
-              <p className="mt-5 text-xs leading-5 text-gray-500">
-                Development note: applications currently use a temporary
-                student email. We will connect this to the authenticated
-                student's account when the login system is implemented.
+              {!isActive && (
+                <p className="mt-3 text-center text-xs text-gray-500">
+                  This job is not currently accepting applications.
+                </p>
+              )}
+
+              <p className="mt-4 text-center text-xs text-gray-500">
+                By applying, you agree to share your application details with
+                the recruiter.
               </p>
             </div>
           </aside>
         </div>
       </div>
-    </main>
-  );
-}
-
-function JobInfo({
-  icon,
-  label,
-  value,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  value: string;
-}) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="mt-1 text-[#d77a5d]">{icon}</span>
-
-      <div>
-        <p className="text-sm text-gray-500">{label}</p>
-        <p className="mt-1 font-semibold text-[#173d2a]">{value}</p>
-      </div>
-    </div>
-  );
-}
-
-function DetailSection({
-  title,
-  content,
-}: {
-  title: string;
-  content: string;
-}) {
-  return (
-    <section className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm sm:p-8">
-      <h2 className="mb-4 text-xl font-bold text-[#173d2a]">{title}</h2>
-
-      <p className="whitespace-pre-line leading-7 text-gray-600">{content}</p>
     </section>
   );
 }
